@@ -1,0 +1,12 @@
+---
+title: "Thesis_Overview"
+author: "Vincent Wauters"
+date: "27 February 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This document will contain some general things concerning the thesis of Sparse & Robust regression
