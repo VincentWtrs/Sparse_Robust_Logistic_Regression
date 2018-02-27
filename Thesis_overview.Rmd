@@ -10,3 +10,8 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 This document will contain some general things concerning the thesis of Sparse & Robust regression
+
+```{r}
+# some testing
+```
+
