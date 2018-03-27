@@ -9,9 +9,296 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-This document will contain some general things concerning the thesis of Sparse & Robust regression
+```{r}
+#install.packages("enetLTS")
+#install.packages("robustbase")
+#install.packages("simFrame")
+#install.packages("mvtnorm")
+#install.packages("MASS") # confint
+#install.packages("robust")
+```
 
 ```{r}
-# some testing
+library(enetLTS)
+library(robustbase)
+library(simFrame)
+library(mvtnorm)
+library(MASS)
+library(robust)
 ```
+
+This document will contain some general things concerning the thesis of Sparse & Robust regression
+
+
+# Linear Models
+## Linear - Low Dimensional
+
+Let's try out the sparse + robust enet-LTS estimator as implemented by KHF (2017):
+```{r}
+# Setting sample size
+n1 <- 500
+
+# Setting x1
+x1 <- c(rep(10, n/2), rep(20, n/2))
+
+# Setting beta0, beta1
+beta0 <- 100
+beta1 <- 10
+
+# Defining error
+e1 <- rnorm(mean = 0, sd = 5, n = n)
+
+# Defining the outcome
+y1 <- beta0 + beta1 * x1 + e
+```
+
+Plotting
+```{r plot}
+plot(x = x1, y = y)
+```
+
+The linear model of course has no problem estimating this.
+```{r lm}
+lm1 <- lm(y1 ~ x1)
+summary(lm1)
+```
+
+```{r}
+lts1 <- ltsReg(y ~ x1)
+```
+
+
+Let's now introduce some leverage points
+```{r}
+## Introducing leverage points
+n_outlier1 <- 50
+n2 <- n1 + n_outlier1
+
+outliers1 <- rnorm(mean = 150, sd = 5, n = n_outlier1)
+
+x2 <- c(x1, rep(30, n_outlier1))
+y2 <- c(y1, outliers1)
+
+```
+
+Checking by ols
+```{r}
+# Fitting OLS
+lm2 <- lm(y2 ~ x2)
+summary(lm2)
+
+# Plotting
+plot(x = x2, 
+     y = y2,
+     main = "OLS Fit with Leverage Points")
+abline(lm2) 
+```
+
+Some LTS regression
+```{r}
+# LTS Regression
+lts2 <- ltsReg(y2 ~ x2)
+summary(lts2)
+
+# Plotting
+plot(x = x2,
+     y = y2,
+     main = "LTS Fit with Leverage Points")
+abline(lts2)
+```
+
+The LTS recovers the true parameter values.
+
+## Linear - High Dimensional
+
+# Logistic Regression
+## Low Dimensional
+
+```{r}
+x3 <- x2 + rnorm(mean = 0, sd = 5, n = n2)
+
+y3 <- ifelse(x3 > (15 + rnorm(mean = 0, sd = 2, n = n2)), yes = 1, no = 0)
+# Okay we need to add some randomness to the splitting criterion, otherwise there is no overlap hence perfect separation
+
+plot(x = x3,
+     y = y3)
+
+```
+
+```{r}
+glm3 <- glm(y3 ~ x3, family = binomial(link = "logit")) # glm(y3 ~ x3, family = "binomial") is OK too
+
+
+
+```
+
+We know the theoretical model is:
+
+$$\ln(\frac{p}{1 - p_i}) = \boldsymbol{x'_i \beta}$$
+
+```{r}
+eta3 <- beta0 + beta1 * x2
+
+p3 <- exp(eta3) / (1 + exp(eta3))
+
+p3
+
+
+```
+
+
+```{r}
+r = 0.8 # correlation coefficient
+sigma = matrix(c(1,r,r,1), ncol=2)
+s = chol(sigma)
+n = 10000
+z = s%*%matrix(rnorm(n*2), nrow=2)
+u = pnorm(z)
+
+age = qgamma(u[1,], 15, 0.5)
+age_bracket = cut(age, breaks = seq(0,max(age), by=5))
+success = u[2,]>0.4
+
+round(prop.table(table(age_bracket, success)),2)
+
+plot(density(age[!success]), main="Age by Success", xlab="age")
+lines(density(age[success]), lty=2)
+legend('topright', c("Failure", "Success"), lty=c(1,2))
+```
+
+A manual way of working:
+```{r logit_manual}
+# Creating covariates
+x1 <- rnorm(1000)
+x2 <- rnorm(1000)
+
+## Creating outcome
+# Setting betas
+beta0 <- 1
+beta1 <- 2
+beta2 <- 3
+
+# Linear predictor (eta)
+eta = beta0 + beta1 * x1 +  beta2 *x2 
+
+# Setting expected value (pi)
+p = 1/(1 + exp(-eta))
+
+# Creating actual outcome variable
+y = rbinom(n = 1000, size = 1, prob = p)      # bernoulli response variable
+
+# Putting in data frame
+df = data.frame(y = y, x1= x1, x2= x2)
+
+# Running GLM
+glm(y ~ x1 + x2, data=df, family = "binomial")
+
+
+```
+
+```{r}
+
+logit_sim <- function(beta_vector, n, p_clean, runs, seed){
+  set.seed(seed) # Setting seed for reproduceability
+  p <- length(beta_vector) # Total dimensionality
+  model_list <- vector("list", runs) # Making model list to save the models
+  
+  # Generating X matrix
+  for(r in 1:runs){
+    X_matrix <- matrix(nrow = n, ncol = p)
+    X_matrix[, 1] <- rep(1, n)
+    for(j in 2:p_clean){
+      X_matrix[, j] <- runif(n = n, min = 0, max = 1)
+    }
+    
+    # Generating outcome
+    n_dirty <- round(0.20 * n, 0)
+    n_clean <- n - n_dirty
+    
+    beta_dirty <- c(-0.5, 0.8, 1.3)
+    
+    eta_vector <- X_matrix[1:n_clean, ] %*% beta_vector
+    eta_dirty <- X_matrix[(n_clean + 1):n, ] %*% beta_dirty
+    pi_vector <- 1/(1 + exp(-eta_vector))
+    pi_dirty <- 1/(1 + exp(-eta_dirty))
+    y_vector <- rbinom(n = n_clean,
+                       size = 1,
+                       prob = pi_vector)
+    y_dirty <- rbinom(n = n_dirty,
+                       size = 1,
+                       prob = pi_dirty)
+    
+    y <- c(y_vector, y_dirty)
+    
+    # Now in data frame format
+    data <- as.data.frame(cbind(y, X_matrix[, -1]))
+    names(data) <- c("y", paste0("X", 1:(p-1)))
+
+    formula <- paste("y", paste0("X", 1:(p - 1), collapse = " + "), sep = " ~ ")
+  
+    # GLM
+    model_list[[r]] <- glm(formula = formula, 
+                           family = binomial(link = "logit"), 
+                           data = data)
+  }
+  return(model_list)
+}
+
+plot(X_matrix[ ,2], y_vector)
+
+```
+
+Running simulation
+```{r}
+beta_vector <- c(0.5, -1.3, 1.7)
+test1 <- logit_sim(beta_vector = beta_vector, n = 500, runs = 1999)
+
+coefs <- t(sapply(test1, coef))
+# Avg
+colMeans(coefs)
+
+# MSE:
+colMeans((coefs - beta_vector)^2)
+
+# Coverage probs
+coefs_ci <- t(sapply(test1, confint))
+
+# This is quite nasty, the CI's are not next to each other!
+ci_beta0 <- coefs_ci[, c(1, 4)]
+ci_beta1 <- coefs_ci[, c(2, 5)]
+ci_beta2 <- coefs_ci[, c(3, 6)]
+
+# Coverage probabilities (counting if the true value is in or not!), so yes the nominal coverage and effective are rather close!
+mean(beta_vector[1] > ci_beta0[, 1] & beta_vector[1] < ci_beta0[, 2])
+mean(beta_vector[2] > ci_beta1[, 1] & beta_vector[2] < ci_beta1[, 2])
+mean(beta_vector[3] > ci_beta2[, 1] & beta_vector[3] < ci_beta2[, 2])
+
+
+#hist(test1[, 1], breaks = 20, prob = TRUE)
+#lines(density(test1[, 1]))
+t(confint(test1[[1]]))
+
+```
+
+```{r}
+by1 <- glmrob(formula = formula, family = binomial, data = data)
+
+```
+
+
+
+# Using simFrame
+```{r}
+# Defining a "data control object"
+dc1 <- DataControl(size = 5, 
+                   distribution = rmvnorm,
+                   dots = list(mean = rep(0, 2),
+                               sigma = matrix(c(1, 0.5, 0.5, 1), 2, 2)))
+# Generating the actual data according to the data control object
+data1 <- generate(dc1)
+data1
+
+
+```
+
 
