@@ -197,41 +197,45 @@ glm(y ~ x1 + x2, data=df, family = "binomial")
 ```
 
 ```{r}
-
-logit_sim <- function(beta_vector, n, p_clean, runs, seed){
+logit_sim <- function(beta_vector, n, runs, seed, dirty){
+  
   set.seed(seed) # Setting seed for reproduceability
   p <- length(beta_vector) # Total dimensionality
   model_list <- vector("list", runs) # Making model list to save the models
+  robust_list <- vector("list", runs)
+  
+  n_dirty <- round(dirty * n, 0)
+  n_clean <- n - n_dirty
   
   # Generating X matrix
   for(r in 1:runs){
-    X_matrix <- matrix(nrow = n, ncol = p)
-    X_matrix[, 1] <- rep(1, n)
-    for(j in 2:p_clean){
-      X_matrix[, j] <- runif(n = n, min = 0, max = 1)
+    X_matrix <- matrix(nrow = n_clean, ncol = p)
+    X_matrix[, 1] <- rep(1, n_clean)
+    for(j in 2:p){
+      X_matrix[, j] <- runif(n = n_clean, min = 0, max = 1)
     }
     
     # Generating outcome
-    n_dirty <- round(0.20 * n, 0)
-    n_clean <- n - n_dirty
-    
-    beta_dirty <- c(-0.5, 0.8, 1.3)
-    
-    eta_vector <- X_matrix[1:n_clean, ] %*% beta_vector
-    eta_dirty <- X_matrix[(n_clean + 1):n, ] %*% beta_dirty
-    pi_vector <- 1/(1 + exp(-eta_vector))
-    pi_dirty <- 1/(1 + exp(-eta_dirty))
+    eta_vector <- X_matrix %*% beta_vector  # linear predictor (eta)
+    pi_vector <- 1/(1 + exp(-eta_vector)) # expected outcome (E(y = 1))
     y_vector <- rbinom(n = n_clean,
                        size = 1,
                        prob = pi_vector)
-    y_dirty <- rbinom(n = n_dirty,
-                       size = 1,
-                       prob = pi_dirty)
     
+    # Dirty samples
+    X_dirty <- matrix(nrow = n_dirty, ncol = p)
+    for(j in 2:p){
+      X_dirty[, j] <- runif(n = n_dirty, min = 0.7, max = 3)
+    }
+    y_dirty <- rep(0, times = n_dirty)
+    
+    # Combining
     y <- c(y_vector, y_dirty)
-    
+    X <- rbind(X_matrix, X_dirty)
+
+  
     # Now in data frame format
-    data <- as.data.frame(cbind(y, X_matrix[, -1]))
+    data <- as.data.frame(cbind(y, X[, -1])) # Removing intercept because formula interface will do this automatically
     names(data) <- c("y", paste0("X", 1:(p-1)))
 
     formula <- paste("y", paste0("X", 1:(p - 1), collapse = " + "), sep = " ~ ")
@@ -240,25 +244,43 @@ logit_sim <- function(beta_vector, n, p_clean, runs, seed){
     model_list[[r]] <- glm(formula = formula, 
                            family = binomial(link = "logit"), 
                            data = data)
-  }
-  return(model_list)
+    robust_list[[r]] <- glmrob(formula = formula, 
+                               family = binomial, 
+                               data = data,
+                               method = "WBY")  
+    }
+  return(list(logit = model_list, by = robust_list))
 }
-
-plot(X_matrix[ ,2], y_vector)
-
 ```
 
 Running simulation
 ```{r}
-beta_vector <- c(0.5, -1.3, 1.7)
-test1 <- logit_sim(beta_vector = beta_vector, n = 500, runs = 1999)
+beta_vector <- c(0.5, 0.7 , 1.3)
+test1 <- logit_sim(beta_vector = beta_vector, n = 500, runs = 999, seed = 12311, dirty = 0.03)
 
-coefs <- t(sapply(test1, coef))
+coef(test1$logit[[2]])
+
+coefs_logit <- t(sapply(test1$logit, coef))
+coefs_by <- t(sapply(test1$by, coef))
+
 # Avg
-colMeans(coefs)
+colMeans(coefs_logit)
+colMeans(coefs_by)
+
+colMedians(coefs_logit)
+colMedians(coefs_by)
+
+# Avg Bias
+mean(sqrt((coefs_logit - beta_vector)^2))
+mean(sqrt((coefs_by - beta_vector)^2))
+
+
 
 # MSE:
-colMeans((coefs - beta_vector)^2)
+colMeans((coefs_logit - beta_vector)^2)
+colMeans((coefs_by - beta_vector)^2)
+
+colMedians()
 
 # Coverage probs
 coefs_ci <- t(sapply(test1, confint))
@@ -285,7 +307,7 @@ by1 <- glmrob(formula = formula, family = binomial, data = data)
 
 ```
 
-
+Okay now what about we make leverage points, by just specifying some y points directly that are certainly bad.
 
 # Using simFrame
 ```{r}
@@ -297,8 +319,6 @@ dc1 <- DataControl(size = 5,
 # Generating the actual data according to the data control object
 data1 <- generate(dc1)
 data1
-
-
 ```
 
 
