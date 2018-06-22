@@ -9,26 +9,29 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-```{r}
+```{r installing_packages}
 #install.packages("enetLTS")
 #install.packages("robustbase")
 #install.packages("simFrame")
 #install.packages("mvtnorm")
 #install.packages("MASS") # confint
 #install.packages("robust")
+#install.packages("MatrixModels")
+#install.packages("glmnet")
 ```
 
-```{r}
+```{r loading_libraries}
 library(enetLTS)
 library(robustbase)
 library(simFrame)
 library(mvtnorm)
 library(MASS)
 library(robust)
+library(MatrixModels)
+library(glmnet)
 ```
 
 This document will contain some general things concerning the thesis of Sparse & Robust regression
-
 
 # Linear Models
 ## Linear - Low Dimensional
@@ -114,63 +117,15 @@ The LTS recovers the true parameter values.
 # Logistic Regression
 ## Low Dimensional
 
-```{r}
-x3 <- x2 + rnorm(mean = 0, sd = 5, n = n2)
-
-y3 <- ifelse(x3 > (15 + rnorm(mean = 0, sd = 2, n = n2)), yes = 1, no = 0)
-# Okay we need to add some randomness to the splitting criterion, otherwise there is no overlap hence perfect separation
-
-plot(x = x3,
-     y = y3)
-
-```
-
-```{r}
-glm3 <- glm(y3 ~ x3, family = binomial(link = "logit")) # glm(y3 ~ x3, family = "binomial") is OK too
-
-
-
-```
-
-We know the theoretical model is:
-
-$$\ln(\frac{p}{1 - p_i}) = \boldsymbol{x'_i \beta}$$
-
-```{r}
-eta3 <- beta0 + beta1 * x2
-
-p3 <- exp(eta3) / (1 + exp(eta3))
-
-p3
-
-
-```
-
-
-```{r}
-r = 0.8 # correlation coefficient
-sigma = matrix(c(1,r,r,1), ncol=2)
-s = chol(sigma)
-n = 10000
-z = s%*%matrix(rnorm(n*2), nrow=2)
-u = pnorm(z)
-
-age = qgamma(u[1,], 15, 0.5)
-age_bracket = cut(age, breaks = seq(0,max(age), by=5))
-success = u[2,]>0.4
-
-round(prop.table(table(age_bracket, success)),2)
-
-plot(density(age[!success]), main="Age by Success", xlab="age")
-lines(density(age[success]), lty=2)
-legend('topright', c("Failure", "Success"), lty=c(1,2))
-```
-
 A manual way of working:
 ```{r logit_manual}
+# Setting some parameters
+N <- 1000
+
 # Creating covariates
-x1 <- rnorm(1000)
-x2 <- rnorm(1000)
+#set.seed(1234) # Uncomment ot see that the sampling variability on X makes beta_hat vary
+x1 <- rnorm(n = N)
+x2 <- rnorm(n = N)
 
 ## Creating outcome
 # Setting betas
@@ -181,46 +136,84 @@ beta2 <- 3
 # Linear predictor (eta)
 eta = beta0 + beta1 * x1 +  beta2 *x2 
 
-# Setting expected value (pi)
-p = 1/(1 + exp(-eta))
+# Setting expected value = PROBABILITY 
+p = exp(eta)/(1 + exp(eta)) # p (also often denoted as pi)
 
-# Creating actual outcome variable
-y = rbinom(n = 1000, size = 1, prob = p)      # bernoulli response variable
+# Creating actual outcome variable based on p
+y = rbinom(n = N, size = 1, prob = p) # size  1 -> Bernouilli
 
 # Putting in data frame
-df = data.frame(y = y, x1= x1, x2= x2)
+df = data.frame(y = y, x1 = x1, x2 = x2)
 
 # Running GLM
-glm(y ~ x1 + x2, data=df, family = "binomial")
-
-
+glm(y ~ x1 + x2, data = df, family = binomial(link = "logit"))
 ```
 
+When running this multiple times, oe sees that the $\hat{\beta}$ estimates differ every time due to sampling variation in the created random $x_1, x_2$ variables. If one fixes seed, this of course does not happen.
+
+If we want multiple runs in the above case, we need to run it multiple times, now we will automate this using a very simple function and then using `replicate()` on this function. The function will generate data and specify the DGP and fit a logit model, then get the coefficients. By replicating this many times, due to the slightly different data (X) every time being sampled __and__ also due to sampling from the binomial distribution (i.e. even with the exact same probability parameter we ofcourse get different realizations).
+
 ```{r}
-logit_sim <- function(beta_vector, n, runs, seed, dirty){
+logitcoefs <- function() {
+  N <- 1000
+  
+  beta0 <- 1
+  beta1 <- 2
+  beta2 <- 3
+  
+  x1 <- rnorm(N)
+  x2 <- rnorm(N)
+  eta <- beta0 + beta1 * x1 + beta2 * x2
+  
+  p <- exp(eta)/(1 + exp(eta))
+  y <- rbinom(n = N, size = 1, prob = p)
+  
+  df <- data.frame(y = y, x1 = x1, x2 = x2)
+  
+  fit <- glm(y ~ x1 + x2, data = df, family = binomial(link = "logit"))
+  coef(fit)
+}
+
+# Replicating and getting results:
+results <- t(replicate(50, logitcoefs()))
+colMeans(results) # Averages per variable
+```
+
+
+```{r}
+logit_sim <- function(beta_vector, n, runs, seed = 1234, dirty = 0, type){
+  ### LOGIT SIMULATION FUNCTION
+  ## INPUT: beta_vector: a vector of true betas
+  # n: the sample size
+  # runs: amount of simulation runs
+  # seed: a seed number for being able to reproduce
+  # dirty: proportion of outlying cases (by default no outliers)
+  ## OUPUT: A list of models, one for each run
   
   set.seed(seed) # Setting seed for reproduceability
-  p <- length(beta_vector) # Total dimensionality
-  model_list <- vector("list", runs) # Making model list to save the models
-  robust_list <- vector("list", runs)
+  p <- length(beta_vector) # Total dimensionality (including intercept)
   
+  # Making model list to save the models
+  model_list <- vector("list", runs)  
+  
+  # Sample sizes for clean and dirty data
   n_dirty <- round(dirty * n, 0)
   n_clean <- n - n_dirty
   
   # Generating X matrix
   for(r in 1:runs){
     X_matrix <- matrix(nrow = n_clean, ncol = p)
-    X_matrix[, 1] <- rep(1, n_clean)
+    X_matrix[, 1] <- rep(1, n_clean) # Intercept = 1-vector
     for(j in 2:p){
-      X_matrix[, j] <- runif(n = n_clean, min = 0, max = 1)
+      X_matrix[, j] <- rnorm(n = n_clean) # Standardnormal randoms
     }
     
     # Generating outcome
-    eta_vector <- X_matrix %*% beta_vector  # linear predictor (eta)
-    pi_vector <- 1/(1 + exp(-eta_vector)) # expected outcome (E(y = 1))
-    y_vector <- rbinom(n = n_clean,
-                       size = 1,
-                       prob = pi_vector)
+    eta_vector  <- X_matrix %*% beta_vector  # Linear predictor (eta)
+    prob_vector <- exp(eta_vector)/(1 + exp(eta_vector)) # expected outcome (E(y = 1)) = PROBABILITY
+    y_vector    <- rbinom(n = n_clean,
+                          size = 1,
+                          prob = prob_vector)
     
     # Dirty samples
     X_dirty <- matrix(nrow = n_dirty, ncol = p)
@@ -229,96 +222,1116 @@ logit_sim <- function(beta_vector, n, runs, seed, dirty){
     }
     y_dirty <- rep(0, times = n_dirty)
     
-    # Combining
+    # Combining (adding the rows)
     y <- c(y_vector, y_dirty)
     X <- rbind(X_matrix, X_dirty)
-
-  
-    # Now in data frame format
-    data <- as.data.frame(cbind(y, X[, -1])) # Removing intercept because formula interface will do this automatically
-    names(data) <- c("y", paste0("X", 1:(p-1)))
-
-    formula <- paste("y", paste0("X", 1:(p - 1), collapse = " + "), sep = " ~ ")
-  
-    # GLM
-    model_list[[r]] <- glm(formula = formula, 
-                           family = binomial(link = "logit"), 
-                           data = data)
-    robust_list[[r]] <- glmrob(formula = formula, 
-                               family = binomial, 
-                               data = data,
-                               method = "WBY")  
+    
+    # In data frame format
+    data        <- as.data.frame(cbind(y, X[, -1])) # Removing intercept because formula interface will do this automatically
+    names(data) <- c("y", paste0("X", 1:(p - 1)))
+    
+    
+    # Making model formula (for glm function)
+    formula     <- paste("y", paste0("X", 1:(p - 1), collapse = " + "), sep = " ~ ")
+    
+    # glm (Ordinary logit)
+    if(type == "glm"){
+      model_list[[r]] <- glm(formula = formula, 
+                             family = binomial(link = "logit"), 
+                             data = data)
     }
-  return(list(logit = model_list, by = robust_list))
+    
+    # glmrob (robust)
+    if(type == "glmrob"){
+      model_list[[r]] <- glmrob(formula = formula, 
+                                family = binomial, 
+                                data = data,
+                                method = "WBY") 
+    }
+    
+    # enetLTS (robust, variable selection)
+    if(type == "enetLTS"){
+      model_list[[r]] <- enetLTS(xx = X,
+                                 yy = y,
+                                 family = "binomial",
+                                 hsize = 0.75,
+                                 nfold = 2)
+    }
+      
+    
+
+  }
+  return(model_list)
 }
 ```
 
-Running simulation
+Running simulations: first set up all the wanted settings, then looping over all these settings. To facilitate this we will create a settings matrix called `settings`.
 ```{r}
-beta_vector <- c(0.5, 0.7 , 1.3)
-test1 <- logit_sim(beta_vector = beta_vector, n = 500, runs = 999, seed = 12311, dirty = 0.03)
+# Defining all simulation settings
+beta_vector <- c(1, 2, 3) # True betas, same for all
+n <- 500 # Sample size
+runs <- 199
+dirty <- 0
+#types <- c("glm", "glmrob")
+types <- "enetLTS"
 
-coef(test1$logit[[2]])
+# Putting in matrix
+settings <- expand.grid(n = n, runs = runs, dirty = dirty, type = types)
+settings
+```
 
-coefs_logit <- t(sapply(test1$logit, coef))
-coefs_by <- t(sapply(test1$by, coef))
+And each time gather all the settings by keeping the names the same every time and assesing row by row. Thus we are looping over the settings:
+```{r simulation_loop_over_settings}
+# Making model list of length = amount of rows of settings
+model_list <- vector("list", nrow(settings))
 
-# Avg
-colMeans(coefs_logit)
-colMeans(coefs_by)
+# Looping over the settings:
+for(i in 1:nrow(settings)){
+  
+  # To get an idea of progression
+  print(paste("iteration", i))
+  
+  
+  # Extracting current row of settings
+  current_settings <- settings[i, ]
+  
+  # Saving all seperate settings in different variables
+  n <- current_settings$n
+  runs <- current_settings$runs
+  dirty <- current_settings$dirty
+  type <- current_settings$type
 
-colMedians(coefs_logit)
-colMedians(coefs_by)
+  # Running models
+  model_list[[i]] <- logit_sim(beta_vector = beta_vector,
+                               n = n,
+                               runs = runs,
+                               dirty = dirty,
+                               type = type)
+  
+}
+```
 
-# Avg Bias
-mean(sqrt((coefs_logit - beta_vector)^2))
-mean(sqrt((coefs_by - beta_vector)^2))
+__to do: maybe add somekind of fields that contain the simulation settings__
+
+Let us quickly define a simulation summary function that returns:
+
+* The true coefficients, as set by the user
+* The estimated means of the coefficients (mean over simulations)
+* 
+```{r sim_summary_function}
+# Summary of simulation function:
+sim_summary <- function(sim_object, beta_vector){
+  coefs <- t(sapply(sim_object, coef))
+  true <- beta_vector
+  mean <- colMeans(coefs)
+  bias <- colMeans(coefs - beta_vector)
+  mse <- colMeans((coefs - beta_vector)^2)
+  
+  results <- rbind(true, mean, bias, mse)
+  return(results)
+}
+```
+
+And check the results
+```{r}
+lapply(model_list, sim_summary, beta_vector)
+```
 
 
+# New try (23/04/18)
 
-# MSE:
-colMeans((coefs_logit - beta_vector)^2)
-colMeans((coefs_by - beta_vector)^2)
+Let's try a very trivial data setup, which does not actually allows me directly to see what the true $\beta$ is. So it's far from ideal. We will take an increasing predictor $x_i = 1, 2, 3, ..., 100$ and an associated outcome $y_i = 0, ... 0, 1, ..., 1$, i.e. 0 for the first $2n/5$ and 1 for the last $2n/5$ observations, for the middle we need some overlap in the observations to not have perfect separation. To do this the middle $n/5$ variables are generated according to a Bernouilli distribution with $p = 0.5$.
 
-colMedians()
+```{r 23_04_18}
+# Setting amount of obs:
+n <- 200
 
-# Coverage probs
-coefs_ci <- t(sapply(test1, confint))
+# Predictors
+X <- as.data.frame(matrix(seq(from = 1, to = n, by = 1),
+                          nrow = n,
+                          ncol = 1))
+names(X) <- "X1"
 
-# This is quite nasty, the CI's are not next to each other!
-ci_beta0 <- coefs_ci[, c(1, 4)]
-ci_beta1 <- coefs_ci[, c(2, 5)]
-ci_beta2 <- coefs_ci[, c(3, 6)]
-
-# Coverage probabilities (counting if the true value is in or not!), so yes the nominal coverage and effective are rather close!
-mean(beta_vector[1] > ci_beta0[, 1] & beta_vector[1] < ci_beta0[, 2])
-mean(beta_vector[2] > ci_beta1[, 1] & beta_vector[2] < ci_beta1[, 2])
-mean(beta_vector[3] > ci_beta2[, 1] & beta_vector[3] < ci_beta2[, 2])
-
-
-#hist(test1[, 1], breaks = 20, prob = TRUE)
-#lines(density(test1[, 1]))
-t(confint(test1[[1]]))
+# Outcome
+set.seed(1234)
+y <- c(rep(0, ((2/5) * n)),
+       rbinom(n = n/5, size = 1, prob = 0.50),
+       rep(1, (2/5) * n))
 
 ```
 
+Only clean data:
 ```{r}
-by1 <- glmrob(formula = formula, family = binomial, data = data)
+# Fitting logit
+logit1 <- glm(y ~ X, data = , family = binomial(link = "logit"))
+logit1
+
+## Plotting
+# Getting predictions to plot:
+logit1_preds_prob <- predict(logit1, type = "response")
+logit1_preds_class <- ifelse(test = logit1_preds_prob > 0.5, yes = 1, no = 0)
+
+# Plotting
+plot(x = X,
+     y = y)
+lines(x = X,
+      y = logit1_preds_prob)
+points(x = X, 
+       y = logit1_preds_class,
+       pch = 2,
+       col = "red")
 
 ```
 
-Okay now what about we make leverage points, by just specifying some y points directly that are certainly bad.
-
-# Using simFrame
+Adding leverage points
 ```{r}
-# Defining a "data control object"
-dc1 <- DataControl(size = 5, 
-                   distribution = rmvnorm,
-                   dots = list(mean = rep(0, 2),
-                               sigma = matrix(c(1, 0.5, 0.5, 1), 2, 2)))
-# Generating the actual data according to the data control object
-data1 <- generate(dc1)
-data1
+# Adding leverage point
+#y[10] <- 1
+y[9:15] <- 1
+
+# Fitting
+logit2 <- glm(y ~ X, family = binomial(link = "logit"))
+logit2
+
+## Plotting
+logit2_preds_prob <- predict(logit2, type = "response")
+logit2_preds_class <- ifelse(test = logit2_preds_prob > 0.5, yes = 1, no = 0)
+
+# Plotting
+plot(x = X,
+     y = y)
+lines(x = X,
+      y = logit2_preds_prob)
+points(x = X,
+       y = logit2_preds_class,
+       pch = 2,
+       col = "red")
+
+
 ```
 
+# New try 24/04
+
+Okay now let's say one takes the cleanest approach by generating from a Binomial distribution that is parametrized as the logistic transformation of a structural component. (See:
+https://stats.stackexchange.com/questions/127226/logistic-regression-simulation-in-order-to-show-that-intercept-is-biased-when-y
+
+)
+
+
+First, let us remind ourselves of the logistic transformation (function), which is not the logit transformation. Let's present the logistic function in two equivalent forms:
+$$f(x) = \frac{e^x}{1+e^x} = \frac{1}{1 + e^{-x}}$$
+
+While the logit function is the inverse of this function and is in very general notation equal to:
+$$f(x) = log(\frac{x}{1 - x})$$
+
+Also note we can write the odds as the exponential taken of the log odds, as it is a 0-operation:
+
+$$odds = \exp(log(odds))$$
+Then see one can write the probability of the event $p$ sometimes denotes as $\pi$ as (note we now start going from $x$ to $p$ to get a bit less general)
+
+$$p = \frac{odds}{1 + odds}$$
+To see why remember that $odds = \frac{p}{1-p}$ so rewriting the above statement leads to the following, they should be equivalent (i.e. $p = p$) if the above statement is true
+
+$$p = \frac{p/(1-p)}{1 + p/(1-p)} $$
+$$p = \frac{p/(1-p)}{[(1-p)/(1-p)] + [p/(1-p)]} = \frac{p/(1-p)}{(1 - p + p)/(1-p)} = \frac{p/(1-p)}{1/(1-p)} = \frac{p (1-p)}{1 - p} = p$$
+So indeed we have established that $p = \frac{odds}{1 + odds}$
+
+Why is this useful? Because we also know that
+
+$$log(odds) = \boldsymbol{X \beta}$$
+
+```{r}
+# Defining log-odds to probability function
+lo2p = function(lo){
+  odds = exp(lo)        
+  p    = odds / (1 + odds)
+  return(p)
+}
+
+# Setting DGP parameters
+N     <- 1000  # 1000 obs
+beta0 <- 0     # intercept
+beta1 <- 0   # slope
+#beta2 <- 1.5
+r     = 200  # amount of simulations
+
+# Generating data
+#set.seed(1234)
+x1 <- rnorm(N)          # Standard normal covariate
+#x2 <- rnorm(N)
+lo = beta0 + beta1 * x1 #+ beta2 * x2  # log-odds
+p = lo2p(lo)          # these will be the parameters of the binomial response (note this is a vector of length 1000!)
+
+beta_hat0 = vector(length = r)  # these will store the estimation results
+beta_hat1 = vector(length = r)
+#beta_hat2 <- vector(length = r)
+y1prp = vector(length = r)  # (for the proportion of y=1)
+
+for(i in 1:r){         # here is the simulation
+  y        = rbinom(n = N, size = 1, prob = p)
+  m        = glm(y ~ x1, family = binomial)
+  beta_hat0[i]   = coef(m)[1]
+  beta_hat1[i]   = coef(m)[2]
+  #beta_hat2[i] <- coef(m)[3]
+  y1prp[i] = mean(y)
+}
+
+# these are the results
+mean(beta_hat0)  
+sd(beta_hat0)
+mean(beta_hat1)
+sd(beta_hat1)
+
+```
+
+Alternatively:
+```{r}
+set.seed(666)
+x1 = rnorm(1000)           # some continuous variables 
+x2 = rnorm(1000)
+z = 1 + 2*x1 + 3*x2        # linear combination with a bias
+pr = exp(z)/(1 + exp(z))         # pass through an inv-logit function
+y = rbinom(1000,1,pr)      # bernoulli response variable
+ 
+# Now feed it to glm:
+df = data.frame(y=y,x1=x1,x2=x2)
+glm( y~x1+x2,data=df,family="binomial")
+
+# Checking class imbalance
+table(y) # is approx balanced
+```
+
+# enetLTS
+
+Now a single run of the robust and sparse estimator implemented in `enetLTS()` will be tried out. From the help file there are the following arguments:
+
+* `xx`: a numeric matrix containing the predictor variables
+* `yy`: response variable. For family = "binomial", this should be a factor coded as 0/1.
+* `family`: a description of the error distribution and link function, "binomial" in our case
+* `alphas`: ...
+* ... 
+
+[TO DO]
+```{r enetLTS_data}
+# Setting parameters    
+n <- 1000
+dirty <- 0.03
+p <- 10
+beta_vector <- c(1, 2, 3, 0.7, 0.5, 0, 0, 0, 0, 0) # Including intercept!
+
+
+n_dirty <- round(dirty * n, 0)
+n_clean <- n - n_dirty
+
+# Design matrix
+X_matrix <- matrix(nrow = n_clean, ncol = p)
+X_matrix[, 1] <- rep(1, times = n_clean)
+for(j in 2:p){
+  X_matrix[, j] <- rnorm(n = n_clean)
+}
+
+# Linear predictor XB (eta)
+eta_vector <- X_matrix %*% beta_vector
+
+## Generating outcome
+# Expected value (p sometimes pi)
+prob_vector <- exp(eta_vector)/(1 + exp(eta_vector))
+
+# Actual 0/1 Bernouilli outcomes
+y_vector <- rbinom(n = n_clean,
+                   size = 1,
+                   prob = prob_vector)
+
+
+# Dirty samples
+X_dirty <- matrix(nrow = n_dirty, ncol = p)
+X_dirty[, 1] <- rep(1, times = n_dirty)
+for(j in 2:p){
+  X_dirty[, j] <- runif(n = n_dirty, min = 0.7, max = 3)
+}
+y_dirty <- rep(0, times = n_dirty)
+
+# Combining (adding the rows)
+y <- c(y_vector, y_dirty)
+X <- rbind(X_matrix, X_dirty)
+
+
+# In data frame format
+data_X       <- as.data.frame(cbind(X[, -1])) # Removing intercept because formula interface will do this automatically
+names(data_X) <- paste0("X", 1:(p - 1))
+
+X <- data.matrix(data_X)
+
+table(y)
+str(y)
+```
+
+__WE HAVE TO USE DATA.MATRIX, which is kind of strange__
+
+```{r enetLTS_fitting}
+enetLTS1 <- enetLTS(xx = data_temp,
+                    yy = y,
+                    family = "binomial",
+                    intercept = TRUE, # Default: TRUE
+                    nfold = 5, # Default: 5
+                    repl = 3, # Default: 5
+                    alpha = c(seq(0, 1, 0.05)),
+                    lambdas = c(2e-5, 2e-4, 2e-3, 2e-2, 2e-1, 2e0, 3, 4, 5)) 
+enetLTS1
+
+enetLTS2 <- enetLTS(xx = X,
+                    yy = y,
+                    family = "binomial",
+                    intercept = TRUE, # Default: TRUE
+                    nfold = 2, # Default: 5
+                    repl = 2, # Default: 5
+                    alpha = seq(0, 1, length = 20),
+                    lambdas = seq(0, 4, length =  40))
+enetLTS2
+summary(enetLTS2)
+coef(enetLTS2)
+-mean(y * log(unname(unlist(predict(enetLTS2, newX = X_test)))) + (1 - y) * log((1 - unname(unlist(predict(enetLTS2, newX = X_test))))))
+# 0.7753325 # test loss on clean test data
+
+enetLTS_test <- enetLTS(xx = X,
+                    yy = y,
+                    family = "binomial",
+                    intercept = TRUE, # Default: TRUE
+                    nfold = 2, # Default: 5
+                    repl = 2, # Default: 5
+                    alpha = seq(0, 1, length = 20),
+                    lambdas = seq(0, 2, length =  40))
+
+
+cvglmnet1 <- cv.glmnet(x = X,
+                       y = y,
+                       nfolds = 5,
+                       family = "binomial") # Necessary here
+coef(cvglmnet1, s = "lambda.1se")
+coef(cvglmnet1, s = "lambda.min")
+plot(cvglmnet1)
+
+error_min <- cvglmnet1$cvm[cvglmnet1$lambda == cvglmnet1$lambda.min]
+error_min
+
+
+# Lambda min:
+- mean(y * log(predict(cvglmnet1, newx = X_test, s = "lambda.min", type = "response")) + (1 - y) * log((1 - predict(cvglmnet1, newx = X_test, s = "lambda.min", type = "response"))))
+
+
+- mean(y * log(predict(cvglmnet1, newx = X_test, s = "lambda.1se", type = "response")) + (1 - y) * log((1 - predict(cvglmnet1, newx = X_test, s = "lambda.1se", type = "response"))))
+
+# MFC Classifier
+table(y) # 0: 413 ; 1: 587
+mfc_preds <- rep(1, n)
+
+# The cross entropy loss is ofcourse not obtainable here, let's look at missclassification loss:
+mean(y != mfc_preds)
+
+
+# LASSO
+lasso1 <- glmnet(x = X,
+                 y = y,
+                 family = "binomial",
+                 alpha = 1)
+coef(lasso1)
+
+
+enetLTS3 <- enetLTS(xx = data_temp,
+                    yy = y,
+                    family = "binomial",
+                    intercept = TRUE, # Default: TRUE
+                    nfold = 2, # Default: 5
+                    repl = 2)
+
+enetLTS3
+
+
+
+```
+
+So even for 42 alpha and 80 lambda values, the grid was able to be displayed, while using the built-in option was not able to. So probably there is something happening in the logic internally.
+
+Let's look at the example from the help file
+```{r}
+## for gaussian
+
+set.seed(86)
+n <- 10000; p <- 25                           # number of observations and variables
+
+beta <- rep(0,p); beta[1:6] <- 1              # 10% nonzero coefficients
+
+sigma <- 0.5                                  # controls signal-to-noise ratio
+
+x <- matrix(rnorm(n = n*p, sigma), nrow=n)    # Special way of filling up the data matrix
+
+e <- rnorm(n,0,1)                             # error terms
+eps <- 0.1                                    # contamination level
+
+m <- ceiling(eps*n)                           # observations to be contaminated
+
+eout <- e; eout[1:m] <- eout[1:m] + 10        # vertical outliers
+yout <- c(x %*% beta + sigma * eout)          # response
+xout <- x; xout[1:m,] <- xout[1:m,] + 10      # bad leverage points
+
+
+fit <- enetLTS(xout,yout,alphas=0.5,lambdas=0.05,plot=FALSE)
+# determine user supplied alpha and lambda sequences
+# alphas=seq(0,1,length=11)
+# l0 <- robustHD::lambda0(xout,yout)          # use # lambda0 function from robustHD package
+# lambdas <- seq(l0,0,by=-0.1*l0)
+# fit <- enetLTS(xout,yout,alphas=alphas,lambdas=lambdas)
+
+
+## for binomial
+
+eps <- 0.05                                     # %10 contamination to only class 0
+m <- ceiling(eps * n)
+y <- sample(0:1,n,replace=TRUE)
+xout <- x
+xout[y==0,][1:m,] <- xout[1:m,] + 10         # class 0
+yout <- y  
+fit <- enetLTS(xx = xout,
+               yy = yout,
+               family = "binomial",
+               intercept = TRUE)
+
+```
+
+The problem I have with this is that the beta's don't come into play at all for the binomial model
+
+
+Generation method according to paper (KHF 2017)
+```{r}
+#set.seed(123)
+
+# Setting parameters
+n <- 150 # Sample size
+p <- 50 # Dimensionality (excluding intercept)
+p_a <- 0.1 * p # Informative dimensionality (true dimensionality)
+p_b <- p - p_a # Uninformative dimensionality
+
+## Creating informative predictors
+# Covariance matrix (sigma_a)
+rho_a <- 0.9 # Base rho
+
+sigma_a <- matrix(NA, nrow = p_a, ncol = p_a)
+for(i in 1:p_a){
+  for(j in 1:p_a){
+    sigma_a[i, j] <- rho_a^(abs(i - j))
+  }
+}
+
+X_a <- rmvnorm(n = n,
+               mean = rep(0, p_a),
+               sigma = sigma_a)
+
+## Creating uninformative predictors
+rho_b <- 0.5
+
+sigma_b <- matrix(NA, nrow = p_b, ncol = p_b)
+
+for(i in 1:p_b){
+  for(j in 1:p_b){
+    sigma_b[i, j] <- rho_b^(abs(i - j))
+  }
+}
+
+X_b <- rmvnorm(n = n,
+               mean = rep(0, p_b),
+               sigma = sigma_b)
+
+# Combining
+X <- cbind(X_a, X_b)
+
+# True Beta vector
+beta <- c(rep(1, p_a), rep(0, p_b))
+
+# Errors
+e <- rnorm(n = n)
+
+# Continuous Underlying DGP
+y_cont <- 1 + X %*% beta + e
+
+# Dichotomizing
+y <- ifelse(test = y_cont > 0, yes = 1, no = 0)
+
+## CONTAMINATION
+# Leverage points
+n_0 <- sum(y == 0)
+n_1 <- sum(y == 1)
+
+X_a[y == 0, ][1:floor(0.1*n_0), ] <- rmvnorm(n = floor(0.1 * n_0), mean = rep(20, p_a))
+# Explanation: taking informative variables only, taking only observations equal to 0, and taking 10% of those and replacing by high values
+
+y[y == 0][1:floor(0.1*n_0)] <- 1 # Wrong membership
+# Same observations and assigning wrong class membership
+
+# Combining again
+X <- cbind(X_a, X_b)
+
+
+## TEST DATA (NO OUTLIERS!)
+X_test_a <- rmvnorm(n = n,
+               mean = rep(0, p_a),
+               sigma = sigma_a)
+X_test_b <- rmvnorm(n = n,
+               mean = rep(0, p_b),
+               sigma = sigma_b)
+X_test <- cbind(X_test_a, X_test_b)
+e_test <- rnorm(n = n)
+y_test_cont <- 1 + X_test %*% beta + e_test
+y_test <- ifelse(test = y_test_cont > 0, yes = 1, no = 0)
+
+
+
+
+```
+Does this make sense, first we are making leverage points, then we actually fix the class memberships it seems...
+
+
+Trying out some models using this DGP method:
+```{r}
+temp <- enetLTS(xx = X,
+                yy = y,
+                family = "binomial",
+                nfold = 5,
+                repl = 2)
+temp
+
+preds_temp <- unlist(unname(predict(temp, newX = X_test, vers = "reweighted", type = "response")))
+preds_temp_class <- unlist(unname(predict(temp, newX = X_test, vers = "reweighted", type = "class")))
+
+loss_temp <- - mean(y_test * log(preds_temp) + (1 - y_test) * log(1 - preds_temp))
+loss_temp # 1.521147
+
+misclass_loss_temp <- mean(preds_temp_class  != y_test)
+misclass_loss_temp # 0.48
+
+temp2 <- enetLTS(xx = X,
+                 yy = y,
+                 family = "binomial",
+                 nfold = 5,
+                 repl = 5,
+                 lambdas = c(2e-7, 2e-6, 2e-5, 2e-4, 2e-3, 3e-2, 2e-2, 1e-2, 2e-1, 2e0, 2e1),
+                 alphas = seq(0, 1, 0.05))
+
+cv_lasso1 <- cv.glmnet(x = X,
+                       y = y,
+                       family = "binomial")
+coef(cv_lasso1, s = "lambda.min")
+
+cv_lasso1_preds <- predict(cv_lasso1, newx = X_test, s = "lambda.min", type = "response")
+cv_lasso1_preds_class <- predict(cv_lasso1, newx = X_test, s = "lambda.min", type = "class")
+
+loss_cv_lasso1 <- - mean(y_test * log(cv_lasso1_preds) + (1 - y_test) * log(1 - cv_lasso1_preds))
+loss_cv_lasso1
+
+misclass_loss_cv_lasso1 <- mean(cv_lasso1_preds_class != y_test)
+misclass_loss_cv_lasso1
+
+```
+
+Putting the data generation in a separate function:
+```{r}
+
+binary_reg_dgp1 <- function(n, p, p_a, beta, sigma = NULL, dirty = 0, v_outlier, test){
+  ## binary_reg_dgp1(): generates data in a binary (Bernouilli) regression setting following KHF (2017)
+  ## INPUTS: n: sample size
+  # p: dimensionality EXCLUDING INTERCEPT!
+  # p_a: dimensionality of the informative part (excluding intercept)
+  # sigma: the covariance matrices (?list of covs?)
+  # dirty: proportion (decimals) of contamination
+  ## NOTE: INTERCEPT ASSUMED TO BE 1!
+  
+  # QUID: setting seed?
+  
+  p_b <- p - p_a # Dimensionality of the uninformative part
+  
+  
+  #### CLEAN Predictor (X) data
+  ### Informative predictors (X_a)
+  ## Covariance Matrix (sigma_a)
+  # Default sigma (KHF paper)
+  if(is.null(sigma)){   
+    
+    # Initializing
+    sigma_a <- matrix(NA, nrow = p_a, ncol = p_a)
+    rho_a <- 0.9
+  
+  # Filling up with a series of powers of rho based on "distance" between predictors
+  for(i in 1:p_a){
+    for(j in 1:p_a){
+      sigma_a[i, j] <- rho_a^(abs(i - j))
+    }
+  }
+  }
+  
+  # If sigma is supplied
+  if(!is.null(sigma)){
+    sigma_a <- sigma
+  }
+  
+  # Generating Gaussian predictor data using sigma_a
+  X_a <- rmvnorm(n = n,
+                 mean = rep(0, p_a),
+                 sigma = sigma_a)
+  
+  ### Uninformative predictors (x_b)
+  X_b <- NULL
+  if(p_b > 0){ # In case there are only informative predictors: this will be skipped
+    sigma_b <- matrix(NA, nrow = p_b, ncol = p_b)
+    rho_b <- 0.5
+    
+    # Filling up with a series of powers of rho based on "distance" between predictors
+    for(i in 1:p_b){
+      for(j in 1:p_b){
+        sigma_b[i, j] <- rho_b^(abs(i - j))
+      }
+    }
+    X_b <- rmvnorm(n = n,
+                   mean = rep(0, p_b),
+                   sigma = sigma_b)
+    
+  }
+  
+  
+  # Combining both X_a and X_b
+  X <- cbind(X_a, X_b) # Can bind X_b even if NULL
+  
+  ## Creating CLEAN outcomes
+  # Creating linear predictor (that is, including intercept, set to 1)
+  eta <- 1 + X %*% beta
+  
+  # Creating Gaussian error
+  e <- rnorm(n = n, mean = 0, sd = 1)
+  
+  # Creating latent continuous outcome
+  y_cont <- eta + e
+  
+  # Dichotomizing
+  y <- ifelse(y_cont > 0, yes = 1, no = 0) # BINARY OUTCOME
+  
+  # Saving proportion of 0/1
+  n_0 <- sum(y == 0)
+  n_1 <- sum(y == 1)
+  
+  ### CONTAMINATION (only in informative part!)
+  if(dirty > 0){
+    
+    ## Leverage points (X-outliers)
+    # Amount of observations to contaminate
+    n_contam <- ceiling(dirty * n_0) # had this set to floor originally, but got into trouble with 0 :(
+    
+    # Contaminating using N(20, 1)
+    if(p == 1){
+      X_a[y == 0][1:n_contam] <- rnorm(n = n_contam, mean = 20, sd = 1)
+    } else if(p != 1){
+      
+      X_a[y == 0, ][1:n_contam, ] <- rmvnorm(n = n_contam, mean = rep(20, p_a))
+      # (sigma default hence I-matrix (independent))
+      # , drop= FALSE to maintain a matrix
+    }
+    
+    ## Vertical outliers
+    if(v_outlier == 1){
+      y[y == 0][1:n_contam] <- 1
+    }
+    
+    ## Combining both
+    X <- cbind(X_a, X_b)
+    
+  }
+  
+  # OUTPUT
+  data_frame <- data.frame(y = y, X)
+  return(data_frame)
+}
+```
+
+```{r}
+# Generating data
+train1 <- binary_reg_dgp1(100, 1, 1, beta = 1, dirty = 0.1, v_outlier = 0) # My idea of vertical outliers
+train2 <- binary_reg_dgp1(100, 1, 1, beta = 1, dirty = 0.1, v_outlier = 1) # KHF idea of vertical outliers
+
+## Fitting logits (ordinary)
+logit1 <- glm(y ~ X, data = train1, family = "binomial")
+logit2 <- glm(y ~ X, data = train2, family = "binomial")
+
+coef(logit1)
+coef(logit2)
+
+# Checking loss
+-logLik(logit1)/nrow(train1) # 0.602
+-logLik(logit2)/nrow(train2) # 0.364 (BEST, minimizing risk/loss) -> Hence probably not real outliers
+
+## Plotting logistic fit
+# Generating predicted probabilities along a fine grid
+x_grid <- seq(-100, 100, by = 0.01)
+
+# Getting predictions
+logit1_preds <- predict(logit1, 
+                        newdata = data.frame(X = x_grid),
+                        type = "response")
+logit2_preds <- predict(logit2,
+                        newdata = data.frame(X = x_grid),
+                        type = "response")
+
+# Plotting (Zoomed-out)
+xlim <- c(-80, 80)
+par(mfrow = c(1, 2))
+plot(train1$X, train1$y, 
+     xlim = xlim,
+     main = "My (VW) outliers (NONrobust fit)", 
+     xlab = "X",
+     ylab = "Probability")
+lines(x = x_grid, y = logit1_preds)
+
+plot(train2$X, train2$y, 
+     xlim = xlim,
+     main = "KHF Outliers (NONrobust fit)", 
+     xlab = "X",
+     ylab = "Probability")
+lines(x = x_grid, y = logit2_preds)
+par(mfrow = c(1, 1))
+
+# Plotting (Zoomed-in)
+xlim <- c(-25, 25)
+par(mfrow = c(1, 2))
+plot(train1$X, train1$y,
+     xlim = xlim,
+     main = "My (VW) outliers (NONrobust fit)", 
+     xlab = "X",
+     ylab = "Probability")
+lines(x = x_grid, y = logit1_preds)
+
+plot(train2$X, train2$y, 
+     xlim = xlim,
+     main = "KHF Outliers (NONrobust fit)", 
+     xlab = "X",
+     ylab = "Probability")
+lines(x = x_grid, y = logit2_preds)
+par(mfrow = c(1, 1))
+ 
+
+## Trying glmRob
+logit_rob1 <- glmrob(y ~ X, data = train1, family = "binomial", method = "WBY")
+logit_rob2 <- glmrob(y ~ X, data = train2, family = "binomial", method = "WBY")
+
+coef(logit_rob1)
+coef(logit_rob2)
+
+# Predictions
+# These don't want to work for some reason:
+logit_rob1_preds <- predict(logit_rob1, newdata = data.frame(X = x_grid), type = "response")
+logit_rob2_preds <- predict(logit_rob2, newdata = data.frame(X = x_grid), type = "response")
+
+# MANUALLY getting predictions
+logit_rob1_preds <- exp(coef(logit_rob1)[1] + coef(logit_rob1)[2] * x_grid)/(1 + exp(coef(logit_rob1)[1] + coef(logit_rob1)[2] * x_grid))
+plot(x_grid, logit_rob1_preds)
+
+logit_rob2_preds <- exp(coef(logit_rob2)[1] + coef(logit_rob2)[2] * x_grid)/(1 + exp(coef(logit_rob2)[1] + coef(logit_rob2)[2] * x_grid))
+plot(x_grid, logit_rob2_preds)
+
+# Plotting (Robust, Zoomed-out)
+xlim <- c(-80, 80)
+par(mfrow = c(1, 2))
+plot(x = train1$X, 
+     y = train1$y,
+     xlim = xlim,
+     main = "My (VW) outliers (ROBUST)", 
+     xlab = "X",
+     ylab = "Probability")
+lines(x = x_grid, 
+      y = logit_rob1_preds)
+
+plot(x = train2$X, 
+     y = train2$y,
+     xlim = xlim,
+     main = "KHF Outliers (ROBUST)",
+     xlab = "X",
+     ylab = "Probability")
+lines(x = x_grid, 
+      y = logit_rob2_preds)
+par(mfrow = c(1, 1))
+
+# Plotting (Robust, Zoomed-in)
+xlim <- c(-25, 25)
+par(mfrow = c(1, 2))
+plot(x = train1$X, 
+     y = train1$y, 
+     xlim = xlim,
+     main = "My (VW) outliers (ROBUST)", 
+     xlab = "X",
+     ylab = "Probability")
+lines(x = x_grid, 
+      y = logit_rob1_preds)
+
+plot(x = train2$X, 
+     y = train2$y, 
+     xlim = xlim,
+     main = "KHF Outliers (ROBUST)", 
+     xlab = "X",
+     ylab = "Probability")
+lines(x = x_grid, 
+      y = logit_rob2_preds)
+par(mfrow = c(1, 1))
+```
+
+```{r logit_loss()}
+logit_loss <- function(y_true, prob_hat){
+  # Function that returns the loss from logistic regression (cross entropy loss)
+  # Note: the loss is normalized (divided by the sample size) making it comparable for differing sizes
+  
+  # Renaming arguments for clearer code
+  y <- y_true
+  p <- prob_hat
+  
+  loss <- - (y * log(p) + (1 - y) * log(1 - p))
+  
+  # Making correction if the prediction is spot on (0 if 0, 1 if 1) to avoid NaN
+  loss[which(p == y)] <- 0
+  
+  # Calculating average
+  avg_loss <- mean(loss)
+  
+  # Output
+  return(list(loss = loss, avg_loss = avg_loss))
+}
+```
+
+
+Let is use this setting to do a little simulation study:
+```{r}
+# Clean
+reps <- 100
+data <- vector("list", length = reps)
+test <- vector("list", length = reps)
+models <- vector("list", length = reps)
+predictions <- matrix(NA, nrow = reps, ncol = 100)
+loss <- vector("numeric", length = reps)
+for(i in 1:reps){
+  data[[i]] <- binary_reg_dgp1(100, 1, 1, beta = 1, dirty = 0, v_outlier = 0) # My idea of vertical outliers
+  test[[i]] <- binary_reg_dgp1(100, 1, 1, beta = 1, dirty = 0, v_outlier = 0)
+  data_now <- data[[i]]
+  test_now <- test[[i]]
+  y_test_now <- test_now[, 1]
+  X_test_now <- test_now[, -1, drop = FALSE] # otherwise it makes it a vector :(
+  
+  models[[i]] <- glm(y ~ X, data = data_now, family = "binomial")
+  predictions[i, ] <- predict(models[[i]], newdata = X_test_now, type = "response")
+  loss[i] <- logit_loss(y_true = y_test_now, prob_hat = predictions[i, ])
+  
+}
+
+coefs_clean <- t(sapply(models, coef))
+mean_loss <- mean(loss)
+ 
+
+# Nonrobust
+reps <- 100
+data <- vector("list", length = reps)
+models <- vector("list", length = reps)
+for(i in 1:reps){
+  data[[i]] <- binary_reg_dgp1(100, 1, 1, beta = 1, dirty = 0.1, v_outlier = 0) # My idea of vertical outliers
+  data_now <- data[[i]]
+  models[[i]] <- glm(y ~ X, data = data_now, family = "binomial")
+}
+
+# Getting coefs of all models
+coefs <- t(sapply(models, coef))
+
+
+# ROBUST
+reps <- 100
+data <- vector("list", length = reps)
+models <- vector("list", length = reps)
+for(i in 1:reps){
+  data[[i]] <- binary_reg_dgp1(100, 1, 1, beta = 1, dirty = 0.1, v_outlier = 0) # My idea of vertical outliers
+  data_now <- data[[i]]
+  models[[i]] <- glmrob(y ~ X, data = data_now, family = "binomial", method =  "WBY")
+  # Needs (W)BY otherwise it screws up
+}
+
+coefs_rob <- t(sapply(models, coef))
+
+# Plotting
+par(mfrow = c(1, 3))
+boxplot(x = coefs_clean,
+        ylim = c(-3, 3),
+        main = "glm fits CLEAN")
+boxplot(x = coefs, 
+        ylim = c(-3, 3),
+        main = "glm fits DIRTY")
+boxplot(x = coefs_rob, 
+        ylim = c(-3, 3),
+        main = "glmrob WBY DIRTY")
+
+## Predictions
+# Clean
+clean_preds <- predict()
+
+```
+
+Hence it can be seen, the coefs for dirty glm() are completely off, glmrob WBY is doing well in comparison with clean glm!
+
+High dimensional case
+```{r}
+reps <- 100
+data <- vector("list", length = reps)
+models <- vector("list", length = reps)
+
+# Trying 1 run:
+temp <- binary_reg_dgp1(n = 100, p = 60, p_a = 6, beta = c(rep(1, 6), rep(0, 54)), dirty = 0.05, v_outlier = 0)
+temp_test <- binary_reg_dgp1(n = 100, p = 60, p_a = 6, beta = c(rep(1, 6), rep(0, 54)), dirty = 0, v_outlier = 0)
+
+temp_y_test <- temp_test[, 1]
+temp_X_test <- as.matrix(temp_test[, -1]) # as.matrix!
+
+temp_y <- temp[, 1]
+temp_X <- as.matrix(temp[, -1])
+
+temp_enetlts1 <- enetLTS(xx = temp_X,
+                         yy = temp_y,
+                         family = "binomial",
+                         nfold = 5,
+                         repl = 5)
+temp_enetlts1_preds <- unname(unlist(predict(temp_enetlts1, newX = temp_X_test, type = "response")))
+logit_loss(y_true = temp_y_test, prob_hat = temp_enetlts1_preds)
+
+
+temp_glmrob1 <- glmrob(y ~ ., data = temp, family = "binomial", method = "BY")
+
+temp_glmrob1_preds <- predict(temp_glmrob1, type = "response")
+logit_loss(y_true = temp_y, prob_hat = temp_glmrob1_preds)
+
+
+
+for(i in 1:reps){
+  data[[i]] <- binary_reg_dgp1(n = 100, p = 60, p_a = 6, beta = c(rep(1, 6), rep(0, 54)), dirty = 0.1, v_outlier = 0) # My idea of vertical outliers
+  data_now <- data[[i]]
+  models[[i]] <- enetLTS(y ~ X, data = data_now, family = "binomial", method =  "BY")
+  # Needs WBY otherwise it screws up
+}
+
+temp_y * log(temp_enetlts1_preds) + (1 - temp_y) * log(1 - temp_enetlts1_preds)
+```
+Ofcourse logit loss on a test set WITH OUTLIERS is very high! because in that case loss would be infinity!!!!!!!
+
+
+
+Alternate outlier creation:
+```{r}
+## Adjusting the outlier creations
+
+# Setting parameters    
+n <- 1000
+dirty <- 0.03
+p <- 10 # Including intercept
+beta_vector <- c(1, 2, 3, 0.7, 0.5, 0, 0, 0, 0, 0) # Including intercept!
+length(beta_vector)
+
+# Derive the dirty amount of observations
+n_dirty <- ceiling(n * dirty)
+
+
+## Design matrix (Including intercept)
+# Simple way
+X_matrix <- matrix(nrow = n, ncol = p)
+X_matrix[, 1] <- rep(1, times = n)
+for(j in 2:p){
+  X_matrix[, j] <- rnorm(n = n)
+}
+
+## Another way
+#X_matrix <- matrix(nrow = n, ncol = p)
+#X_matrix[, 1] <- rep(1, times = n)
+#X_matrix[, -1] <- rmvnorm(n = n,mean = rep(0, p-1))
+
+# Linear predictor XB (eta)
+eta_vector <- X_matrix %*% beta_vector
+
+## Generating outcome
+# Expected value (p, sometimes denoted pi)
+prob_vector <- exp(eta_vector)/(1 + exp(eta_vector))
+
+# Actual 0/1 Bernouilli outcomes
+y_vector <- rbinom(n = n,
+                   size = 1,
+                   prob = prob_vector)
+y <- y_vector
+
+## Inserting dirty samples
+# Defining dirty predictors
+dirty_predictors <- c(2, 3, 7, 8)
+
+
+#X_matrix[y_vector == 0, dirty_predictors][1:n_dirty, dirty_predictors] <- X_matrix[1:n_dirty, dirty_predictors][1:n_dirty, dirty_predictors] + rnorm(n = 1, mean = 5)
+X_matrix[y_vector == 0, dirty_predictors][1:n_dirty, ] <- X_matrix[1:n_dirty, dirty_predictors][1:n_dirty, ] + rnorm(n = 1, mean = 5)
+
+
+
+data_X <- as.data.frame(X_matrix[, -1]) # Removing intercept because formula interface will do this automatically
+names(data_X) <- paste0("X", 1:(p - 1))
+X <- data.matrix(data_X)
+
+table(y)
+str(y)
+
+cor(X)
+```
+
+I think this is all too much hassle, let's make a new fucntion
+```{r}
+logit_sim <- function(beta_vector, n, runs, seed = 1234, dirty = 0, type){
+  ### LOGIT SIMULATION FUNCTION
+  ## INPUT: beta_vector: a vector of true betas
+  # n: the sample size
+  # runs: amount of simulation runs
+  # seed: a seed number for being able to reproduce
+  # dirty: proportion of outlying cases (by default no outliers)
+  ## OUPUT: A list of models, one for each run
+  
+  set.seed(seed) # Setting seed for reproduceability
+  p <- length(beta_vector) # Total dimensionality (including intercept)
+  
+  n <- n # Sample
+  
+
+  train1 <- binary_reg_dgp1(100, 1, 1, beta = 1, dirty = 0.1, v_outlier = 0) # My idea of vertical outliers
+    
+
+    # Making model formula (for glm function)
+    formula     <- paste("y", paste0("X", 1:(p - 1), collapse = " + "), sep = " ~ ")
+    
+    # glm (Ordinary logit)
+    if(type == "glm"){
+      model_list[[r]] <- glm(formula = formula, 
+                             family = binomial(link = "logit"), 
+                             data = data)
+    }
+    
+    # glmrob (robust)
+    if(type == "glmrob"){
+      model_list[[r]] <- glmrob(formula = formula, 
+                                family = binomial, 
+                                data = data,
+                                method = "WBY") 
+    }
+    
+    # enetLTS (robust, variable selection)
+    if(type == "enetLTS"){
+      model_list[[r]] <- enetLTS(xx = X,
+                                 yy = y,
+                                 family = "binomial",
+                                 hsize = 0.75,
+                                 nfold = 2)
+    }
+      
+    
+
+  }
+  return(model_list)
+}
+```
 
