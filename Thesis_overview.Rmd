@@ -31,70 +31,112 @@ library(MatrixModels)
 library(glmnet)
 ```
 
-This document will contain some general things concerning the thesis of Sparse & Robust regression
+Sourcing functions defined in separate .R files.
+```{r sourcing_functions}
+source(file = "C://Users/Vincent Wauters/Google Drive/Schoolwerk/KU Leuven/Thesis_Sparse_Robust_Logistic_Regression/binary_reg_dgp1.R")
+source(file = "C://Users/Vincent Wauters/Google Drive/Schoolwerk/KU Leuven/Thesis_Sparse_Robust_Logistic_Regression/logit_sim.R")
+source(file = "C://Users/Vincent Wauters/Google Drive/Schoolwerk/KU Leuven/Thesis_Sparse_Robust_Logistic_Regression/logit_loss.R")
+```
+
+To get a better grasp of the concepts of robust and sparse modelling some simple examples will be given that isolate single issues and apply it on a simple models.
 
 # Linear Models
 ## Linear - Low Dimensional
 
-Let's try out the sparse + robust enet-LTS estimator as implemented by KHF (2017):
-```{r}
+In a first step data is generated without outliers. A simple data generating process (DGP) $y = \beta_0 + \beta_1 * x_1 + \varepsilon$ and the same model is estimated by OLS.
+```{r data_and_ols_no_outliers}
+## Creating data
 # Setting sample size
 n1 <- 500
 
 # Setting x1
-x1 <- c(rep(10, n/2), rep(20, n/2))
+x1 <- c(rep(x = 10, times = floor(n/2)), rep(x = 20, times = floor(n/2)))
 
 # Setting beta0, beta1
 beta0 <- 100
 beta1 <- 10
 
 # Defining error
-e1 <- rnorm(mean = 0, sd = 5, n = n)
+e <- rnorm(n = n,
+            mean = 0,
+            sd = 5)
 
 # Defining the outcome
-y1 <- beta0 + beta1 * x1 + e
-```
+y <- beta0 + beta1 * x1 + e
 
-Plotting
-```{r plot}
-plot(x = x1, y = y)
-```
-
-The linear model of course has no problem estimating this.
-```{r lm}
-lm1 <- lm(y1 ~ x1)
+## Fitting OLS
+lm1 <- lm(y ~ x1) # (Includes intercept)
 summary(lm1)
+
+## Plotting
+plot(x = x1,
+     y = y,
+     main = "No outliers, OLS fit")
+abline(lm1)
 ```
 
-```{r}
+A robust estimator for the linear model, the __Least Trimmed Squares (LTS)__ estimator can also be used, and should give the same results. The function `ltsReg()` (capital R) from the `robustbase` can be used. The default $\alpha = 0.5$ this leads to a $h$ sample size of $h = $
+```{r LTS_linear_no_outliers}
 lts1 <- ltsReg(y ~ x1)
+summary(lts1)
+
+lts1 <- ltsreg(y ~ x1)
+lts1
 ```
 
+__TO DO: I have no idea why the degrees of freedom on the residuals is not $n - p?!__
 
-Let's now introduce some leverage points
-```{r}
-## Introducing leverage points
-n_outlier1 <- 50
+Let's now introduce some leverage points, these are points that are outlying in the X direction. There are __good leverage points__ which have outlying X values but have a y-value that corresponds to the value that would be taken on by the relation follows from the other points. __Bad leverage points__ have outlying X values and have a non-fitting y value. 
+
+Bad leverage points will be introduced, set at the coordinate (30, 150 + $e$) with $e$ coming from a $N(0, \sigma = 5)$ distribution or just put otherwise $y \sim N(150, 5)$. This is certainly a bad leverage point because a predicted reasonable value for $x1 = 30$ would be around 400.
+```{r bad_leverage_point}
+# Take look at current dataset
+plot(x = x1,
+     y = y)
+abline(a = coef(lm1)[1],
+       b = coef(lm1)[2])
+
+# Introducing leverage points
+n_outlier1 <- 50 # Amount of outliers
 n2 <- n1 + n_outlier1
 
+# Making them bad outliers
 outliers1 <- rnorm(mean = 150, sd = 5, n = n_outlier1)
 
-x2 <- c(x1, rep(30, n_outlier1))
-y2 <- c(y1, outliers1)
-
-```
-
-Checking by ols
-```{r}
-# Fitting OLS
-lm2 <- lm(y2 ~ x2)
-summary(lm2)
+x1 <- c(x1, rep(30, n_outlier1))
+y <- c(y, outliers1)
 
 # Plotting
-plot(x = x2, 
-     y = y2,
-     main = "OLS Fit with Leverage Points")
-abline(lm2) 
+plot(x = x1,
+     y = y,
+     main = "OLS fit on regular data, bad leverage points added to display")
+abline(lm1)
+```
+
+When fitting a model to this model that has 50/550 leverage points using OLS but also the LTS estimator:
+```{r bad_leverage_ols}
+# Fitting OLS
+lm2 <- lm(y ~ x1)
+summary(lm2)
+
+# Fitting LTS
+lts2 <- ltsReg(y ~ x1)
+summary(lts2)
+
+# Plotting
+plot(x = x1, 
+     y = y,
+     main = "Impact of bad leverage points")
+abline(lm1, col = "gray", lwd = 2)
+abline(lm2, col = "black")
+abline(lts2, col = "red")
+legend("bottomleft",
+       legend = c("OLS no outliers",
+                  "OLS outliers",
+                  "LTS outliers"),
+       lty = 1,
+       col = c("black", "gray", "red"))
+# OLS on the non-outlying points versus LTS: same, good!
 ```
 
 Some LTS regression
@@ -177,92 +219,6 @@ logitcoefs <- function() {
 # Replicating and getting results:
 results <- t(replicate(50, logitcoefs()))
 colMeans(results) # Averages per variable
-```
-
-
-```{r}
-logit_sim <- function(beta_vector, n, runs, seed = 1234, dirty = 0, type){
-  ### LOGIT SIMULATION FUNCTION
-  ## INPUT: beta_vector: a vector of true betas
-  # n: the sample size
-  # runs: amount of simulation runs
-  # seed: a seed number for being able to reproduce
-  # dirty: proportion of outlying cases (by default no outliers)
-  ## OUPUT: A list of models, one for each run
-  
-  set.seed(seed) # Setting seed for reproduceability
-  p <- length(beta_vector) # Total dimensionality (including intercept)
-  
-  # Making model list to save the models
-  model_list <- vector("list", runs)  
-  
-  # Sample sizes for clean and dirty data
-  n_dirty <- round(dirty * n, 0)
-  n_clean <- n - n_dirty
-  
-  # Generating X matrix
-  for(r in 1:runs){
-    X_matrix <- matrix(nrow = n_clean, ncol = p)
-    X_matrix[, 1] <- rep(1, n_clean) # Intercept = 1-vector
-    for(j in 2:p){
-      X_matrix[, j] <- rnorm(n = n_clean) # Standardnormal randoms
-    }
-    
-    # Generating outcome
-    eta_vector  <- X_matrix %*% beta_vector  # Linear predictor (eta)
-    prob_vector <- exp(eta_vector)/(1 + exp(eta_vector)) # expected outcome (E(y = 1)) = PROBABILITY
-    y_vector    <- rbinom(n = n_clean,
-                          size = 1,
-                          prob = prob_vector)
-    
-    # Dirty samples
-    X_dirty <- matrix(nrow = n_dirty, ncol = p)
-    for(j in 2:p){
-      X_dirty[, j] <- runif(n = n_dirty, min = 0.7, max = 3)
-    }
-    y_dirty <- rep(0, times = n_dirty)
-    
-    # Combining (adding the rows)
-    y <- c(y_vector, y_dirty)
-    X <- rbind(X_matrix, X_dirty)
-    
-    # In data frame format
-    data        <- as.data.frame(cbind(y, X[, -1])) # Removing intercept because formula interface will do this automatically
-    names(data) <- c("y", paste0("X", 1:(p - 1)))
-    
-    
-    # Making model formula (for glm function)
-    formula     <- paste("y", paste0("X", 1:(p - 1), collapse = " + "), sep = " ~ ")
-    
-    # glm (Ordinary logit)
-    if(type == "glm"){
-      model_list[[r]] <- glm(formula = formula, 
-                             family = binomial(link = "logit"), 
-                             data = data)
-    }
-    
-    # glmrob (robust)
-    if(type == "glmrob"){
-      model_list[[r]] <- glmrob(formula = formula, 
-                                family = binomial, 
-                                data = data,
-                                method = "WBY") 
-    }
-    
-    # enetLTS (robust, variable selection)
-    if(type == "enetLTS"){
-      model_list[[r]] <- enetLTS(xx = X,
-                                 yy = y,
-                                 family = "binomial",
-                                 hsize = 0.75,
-                                 nfold = 2)
-    }
-      
-    
-
-  }
-  return(model_list)
-}
 ```
 
 Running simulations: first set up all the wanted settings, then looping over all these settings. To facilitate this we will create a settings matrix called `settings`.
@@ -832,122 +788,6 @@ misclass_loss_cv_lasso1
 
 ```
 
-Putting the data generation in a separate function:
-```{r}
-
-binary_reg_dgp1 <- function(n, p, p_a, beta, sigma = NULL, dirty = 0, v_outlier, test){
-  ## binary_reg_dgp1(): generates data in a binary (Bernouilli) regression setting following KHF (2017)
-  ## INPUTS: n: sample size
-  # p: dimensionality EXCLUDING INTERCEPT!
-  # p_a: dimensionality of the informative part (excluding intercept)
-  # sigma: the covariance matrices (?list of covs?)
-  # dirty: proportion (decimals) of contamination
-  ## NOTE: INTERCEPT ASSUMED TO BE 1!
-  
-  # QUID: setting seed?
-  
-  p_b <- p - p_a # Dimensionality of the uninformative part
-  
-  
-  #### CLEAN Predictor (X) data
-  ### Informative predictors (X_a)
-  ## Covariance Matrix (sigma_a)
-  # Default sigma (KHF paper)
-  if(is.null(sigma)){   
-    
-    # Initializing
-    sigma_a <- matrix(NA, nrow = p_a, ncol = p_a)
-    rho_a <- 0.9
-  
-  # Filling up with a series of powers of rho based on "distance" between predictors
-  for(i in 1:p_a){
-    for(j in 1:p_a){
-      sigma_a[i, j] <- rho_a^(abs(i - j))
-    }
-  }
-  }
-  
-  # If sigma is supplied
-  if(!is.null(sigma)){
-    sigma_a <- sigma
-  }
-  
-  # Generating Gaussian predictor data using sigma_a
-  X_a <- rmvnorm(n = n,
-                 mean = rep(0, p_a),
-                 sigma = sigma_a)
-  
-  ### Uninformative predictors (x_b)
-  X_b <- NULL
-  if(p_b > 0){ # In case there are only informative predictors: this will be skipped
-    sigma_b <- matrix(NA, nrow = p_b, ncol = p_b)
-    rho_b <- 0.5
-    
-    # Filling up with a series of powers of rho based on "distance" between predictors
-    for(i in 1:p_b){
-      for(j in 1:p_b){
-        sigma_b[i, j] <- rho_b^(abs(i - j))
-      }
-    }
-    X_b <- rmvnorm(n = n,
-                   mean = rep(0, p_b),
-                   sigma = sigma_b)
-    
-  }
-  
-  
-  # Combining both X_a and X_b
-  X <- cbind(X_a, X_b) # Can bind X_b even if NULL
-  
-  ## Creating CLEAN outcomes
-  # Creating linear predictor (that is, including intercept, set to 1)
-  eta <- 1 + X %*% beta
-  
-  # Creating Gaussian error
-  e <- rnorm(n = n, mean = 0, sd = 1)
-  
-  # Creating latent continuous outcome
-  y_cont <- eta + e
-  
-  # Dichotomizing
-  y <- ifelse(y_cont > 0, yes = 1, no = 0) # BINARY OUTCOME
-  
-  # Saving proportion of 0/1
-  n_0 <- sum(y == 0)
-  n_1 <- sum(y == 1)
-  
-  ### CONTAMINATION (only in informative part!)
-  if(dirty > 0){
-    
-    ## Leverage points (X-outliers)
-    # Amount of observations to contaminate
-    n_contam <- ceiling(dirty * n_0) # had this set to floor originally, but got into trouble with 0 :(
-    
-    # Contaminating using N(20, 1)
-    if(p == 1){
-      X_a[y == 0][1:n_contam] <- rnorm(n = n_contam, mean = 20, sd = 1)
-    } else if(p != 1){
-      
-      X_a[y == 0, ][1:n_contam, ] <- rmvnorm(n = n_contam, mean = rep(20, p_a))
-      # (sigma default hence I-matrix (independent))
-      # , drop= FALSE to maintain a matrix
-    }
-    
-    ## Vertical outliers
-    if(v_outlier == 1){
-      y[y == 0][1:n_contam] <- 1
-    }
-    
-    ## Combining both
-    X <- cbind(X_a, X_b)
-    
-  }
-  
-  # OUTPUT
-  data_frame <- data.frame(y = y, X)
-  return(data_frame)
-}
-```
 
 ```{r}
 # Generating data
@@ -1076,28 +916,6 @@ plot(x = train2$X,
 lines(x = x_grid, 
       y = logit_rob2_preds)
 par(mfrow = c(1, 1))
-```
-
-```{r logit_loss()}
-logit_loss <- function(y_true, prob_hat){
-  # Function that returns the loss from logistic regression (cross entropy loss)
-  # Note: the loss is normalized (divided by the sample size) making it comparable for differing sizes
-  
-  # Renaming arguments for clearer code
-  y <- y_true
-  p <- prob_hat
-  
-  loss <- - (y * log(p) + (1 - y) * log(1 - p))
-  
-  # Making correction if the prediction is spot on (0 if 0, 1 if 1) to avoid NaN
-  loss[which(p == y)] <- 0
-  
-  # Calculating average
-  avg_loss <- mean(loss)
-  
-  # Output
-  return(list(loss = loss, avg_loss = avg_loss))
-}
 ```
 
 
