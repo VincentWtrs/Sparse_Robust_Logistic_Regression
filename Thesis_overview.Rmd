@@ -3,6 +3,8 @@ title: "Thesis_Overview"
 author: "Vincent Wauters"
 date: "27 February 2018"
 output: html_document
+editor_options: 
+  chunk_output_type: console
 ---
 
 ```{r setup, include=FALSE}
@@ -12,7 +14,6 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r installing_packages}
 #install.packages("enetLTS")
 #install.packages("robustbase")
-#install.packages("simFrame")
 #install.packages("mvtnorm")
 #install.packages("MASS") # confint
 #install.packages("robust")
@@ -23,7 +24,6 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r loading_libraries}
 library(enetLTS)
 library(robustbase)
-library(simFrame)
 library(mvtnorm)
 library(MASS)
 library(robust)
@@ -41,15 +41,18 @@ source(file = "C://Users/Vincent Wauters/Google Drive/Schoolwerk/KU Leuven/Thesi
 To get a better grasp of the concepts of robust and sparse modelling some simple examples will be given that isolate single issues and apply it on a simple models.
 
 # Linear Models
-## Linear - Low Dimensional
+## Linear - Low Dimensional (LD)
+### Linear - LD - No Outliers
+
+__USING OLS__
 
 In a first step data is generated without outliers. A simple data generating process (DGP) $y = \beta_0 + \beta_1 * x_1 + \varepsilon$ and the same model is estimated by OLS.
 ```{r data_and_ols_no_outliers}
 ## Creating data
 # Setting sample size
-n1 <- 500
+n <- 500
 
-# Setting x1
+# Setting Coviates (Simple fixed design)
 x1 <- c(rep(x = 10, times = floor(n/2)), rep(x = 20, times = floor(n/2)))
 
 # Setting beta0, beta1
@@ -75,24 +78,46 @@ plot(x = x1,
 abline(lm1)
 ```
 
-A robust estimator for the linear model, the __Least Trimmed Squares (LTS)__ estimator can also be used, and should give the same results. The function `ltsReg()` (capital R) from the `robustbase` can be used. The default $\alpha = 0.5$ this leads to a $h$ sample size of $h = $
+__USING LTS__
+
+A robust estimator for the linear model, the __Least Trimmed Squares (LTS)__ estimator can also be used, and should give the same results. The function `ltsReg()` (capital R) from the `robustbase` can be used. The default $\alpha = 0.5$ this leads to a $h$ sample size of $h = $ __to do__
 ```{r LTS_linear_no_outliers}
-lts1 <- ltsReg(y ~ x1)
+# Fitting LTS
+lts1 <- ltsReg(y ~ x1, alpha = 0.5) # Default
 summary(lts1)
 
-lts1 <- ltsreg(y ~ x1)
-lts1
+# Fitting LTS with less trimming
+lts2 <- ltsReg(y ~ x1, alpha = 0.95) # Closer to OLS
+summary(lts2)
+
+## Plotting LTS
+plot(x = x1,
+     y = y,
+     main = "Clean data: OLS vs. LTS")
+abline(lts1, col = "black") # LTS Line
+abline(lm1, col = "gray", lwd = 2, lty = 2)
+legend("bottomright",
+       legend = c("OLS", "LTS"),
+       lty = 1:2,
+       lwd = 1:2,
+       col = c("black", "gray"))
 ```
 
+__CONCLUSION: Yes in the linear low dimensional case, LTS seem to do equally good (visually at least) as OLS in clean case__
+
+__TO DO: what's the relation between alpha and the error variance (scale) estimate?__
 __TO DO: I have no idea why the degrees of freedom on the residuals is not $n - p?!__
 
-Let's now introduce some leverage points, these are points that are outlying in the X direction. There are __good leverage points__ which have outlying X values but have a y-value that corresponds to the value that would be taken on by the relation follows from the other points. __Bad leverage points__ have outlying X values and have a non-fitting y value. 
+
+### Linear - LD - Outliers
+Let's now introduce some __leverage points__, these are points that are outlying in the X direction. There are __good leverage points__ which have outlying X values but have a y-value that corresponds to the value that would be taken on by the relation follows from the other points. __Bad leverage points__ have outlying X values and have a non-fitting y value. 
 
 Bad leverage points will be introduced, set at the coordinate (30, 150 + $e$) with $e$ coming from a $N(0, \sigma = 5)$ distribution or just put otherwise $y \sim N(150, 5)$. This is certainly a bad leverage point because a predicted reasonable value for $x1 = 30$ would be around 400.
 ```{r bad_leverage_point}
 # Take look at current dataset
 plot(x = x1,
-     y = y)
+     y = y,
+     main = "Outliers Visualization in Linear Models")
 abline(a = coef(lm1)[1],
        b = coef(lm1)[2])
 
@@ -114,7 +139,7 @@ abline(lm1)
 ```
 
 When fitting a model to this model that has 50/550 leverage points using OLS but also the LTS estimator:
-```{r bad_leverage_ols}
+```{r bad_leverage_ols_lts}
 # Fitting OLS
 lm2 <- lm(y ~ x1)
 summary(lm2)
@@ -127,100 +152,124 @@ summary(lts2)
 plot(x = x1, 
      y = y,
      main = "Impact of bad leverage points")
-abline(lm1, col = "gray", lwd = 2)
-abline(lm2, col = "black")
-abline(lts2, col = "red")
+abline(lm1, col = "gray", lwd = 2) # OLS on regular data only
+abline(lm2, col = "black") # OLS on all data
+abline(lts2, col = "red") # LTS on all dat
 legend("bottomleft",
        legend = c("OLS no outliers",
                   "OLS outliers",
                   "LTS outliers"),
        lty = 1,
-       col = c("black", "gray", "red"))
+       col = c("gray", "black", "red"))
 # OLS on the non-outlying points versus LTS: same, good!
+
 ```
 
-Some LTS regression
-```{r}
-# LTS Regression
-lts2 <- ltsReg(y2 ~ x2)
+Let's take a quick look at the LTS regression results on this dirty data:
+```{r bad_leverage_lts_detail}
 summary(lts2)
+coef(lts2)
 
-# Plotting
-plot(x = x2,
-     y = y2,
-     main = "LTS Fit with Leverage Points")
-abline(lts2)
+# Real betas:
+beta0; beta1
+
 ```
 
 The LTS recovers the true parameter values.
 
 ## Linear - High Dimensional
+### Linear - HD - No Outliers
 
-# Logistic Regression
-## Low Dimensional
-
-A manual way of working:
-```{r logit_manual}
-# Setting some parameters
-N <- 1000
-
-# Creating covariates
-#set.seed(1234) # Uncomment ot see that the sampling variability on X makes beta_hat vary
-x1 <- rnorm(n = N)
-x2 <- rnorm(n = N)
-
-## Creating outcome
-# Setting betas
-beta0 <- 1
-beta1 <- 2
-beta2 <- 3
-
-# Linear predictor (eta)
-eta = beta0 + beta1 * x1 +  beta2 *x2 
-
-# Setting expected value = PROBABILITY 
-p = exp(eta)/(1 + exp(eta)) # p (also often denoted as pi)
-
-# Creating actual outcome variable based on p
-y = rbinom(n = N, size = 1, prob = p) # size  1 -> Bernouilli
-
-# Putting in data frame
-df = data.frame(y = y, x1 = x1, x2 = x2)
-
-# Running GLM
-glm(y ~ x1 + x2, data = df, family = binomial(link = "logit"))
-```
-
-When running this multiple times, oe sees that the $\hat{\beta}$ estimates differ every time due to sampling variation in the created random $x_1, x_2$ variables. If one fixes seed, this of course does not happen.
-
-If we want multiple runs in the above case, we need to run it multiple times, now we will automate this using a very simple function and then using `replicate()` on this function. The function will generate data and specify the DGP and fit a logit model, then get the coefficients. By replicating this many times, due to the slightly different data (X) every time being sampled __and__ also due to sampling from the binomial distribution (i.e. even with the exact same probability parameter we ofcourse get different realizations).
+Let's now make something that is a lot more high dimensional, something with p = 200 (with intercept: 201), but only 10 first betas are nonzero, and the sample size stays the same at 500, __this example is thus NOT n < p!__
 
 ```{r}
+## Setting parameters
+n1 # Keepign same sample size = 500
+p_a <- 10 # True dimensionality
+p_b <- 190 # Uninformative
+p <- p_a + p_b # Total dimensionality
+
+## Creating data
+beta0 <- 1
+beta <- c(beta0, rep(1, p_a), rep(0, p_b))
+
+# Creating covariates
+X <- rmvnorm(n = n1,
+             mean = rep(0, p),
+             sigma = diag(p))
+# Adding intercept column
+X <- cbind(rep(1, times = n1), X)
+
+# Adding names
+colnames(X) <- paste0("X", 0:p)
+  
+# Creating outcome
+y <- X %*% beta + rmvnorm(n = n1,
+                          mean = 0)
+
+# Creating dataframe used for FITTING
+data1 <- data.frame(cbind(y, X[, -1]))
+names(data1)[1] <- "y" # Setting name of y (first col)
+
+## Fitting
+# Making formula
+formula1 <- paste("y", paste0("X", 1:p, collapse = " + "), sep = " ~ ")
+
+# OLS
+lm3 <- lm(formula = formula1, data = data1)
+summary(lm3)
+
+# LTS
+lts3 <- ltsReg(formula = formula1, data = data1)
+```
+__ TO DO: further check the lts3 problems__
+
+# Logistic Regression
+## Low Dimensional - No Outliers
+
+If we want multiple runs of such model (i.e. simulation), we need to run it multiple times, now we will automate this using a very simple function (which we will not use much further on, I suppose) and then using `replicate()` on this function. The function will generate data and specify the DGP and fit a logit model, then get the coefficients. By replicating this many times, due to the slightly different data (X) every time being sampled __and__ also due to sampling from the binomial distribution (i.e. even with the exact same probability parameter we ofcourse get different realizations).
+
+The function is very basic, the parameters cannot even be altered in this simple version, it's purely as an example now!
+```{r temporary_logitcoefs_simulation_function}
+## Very Simple logit simulation: coefficients
 logitcoefs <- function() {
+  # Sample size
   N <- 1000
   
+  # Beta
   beta0 <- 1
   beta1 <- 2
   beta2 <- 3
   
+  # Linear predictor (eta)
   x1 <- rnorm(N)
   x2 <- rnorm(N)
   eta <- beta0 + beta1 * x1 + beta2 * x2
   
+  # Probability (pi or p) and outcome (0/1)
   p <- exp(eta)/(1 + exp(eta))
   y <- rbinom(n = N, size = 1, prob = p)
   
+  # Data.frame
   df <- data.frame(y = y, x1 = x1, x2 = x2)
   
+  # Fitting
   fit <- glm(y ~ x1 + x2, data = df, family = binomial(link = "logit"))
-  coef(fit)
+  
+  # Returning coefs
+  return(coef(fit))
 }
 
 # Replicating and getting results:
-results <- t(replicate(50, logitcoefs()))
+results <- t(replicate(n = 50, 
+                       expr = logitcoefs())) # Transposing for more easy to read results
 colMeans(results) # Averages per variable
+# Comparing to original beta = 1, 2, 3 -> YES It's OK
+
 ```
 
+
+__to do: recheck these:__
 Running simulations: first set up all the wanted settings, then looping over all these settings. To facilitate this we will create a settings matrix called `settings`.
 ```{r}
 # Defining all simulation settings
@@ -246,7 +295,6 @@ for(i in 1:nrow(settings)){
   
   # To get an idea of progression
   print(paste("iteration", i))
-  
   
   # Extracting current row of settings
   current_settings <- settings[i, ]
@@ -294,87 +342,108 @@ lapply(model_list, sim_summary, beta_vector)
 ```
 
 
-# New try (23/04/18)
+## Logistic - LD - Outliers
+Let's try a very trivial __clean data__ setup, which does not actually allows me directly to see what the true $\beta$ is but gives some insights, far from ideal. We will take an increasing predictor $x_i = 1, 2, 3, ..., 100$ and an associated outcome $y_i = 0, ... 0, 1, ..., 1$, i.e. 0 for the first $2n/5$ (40%) and 1 for the last $2n/5$ (40%) observations, __for the middle we need some overlap in the observations to not have perfect separation__. To do this the middle $n/5$ (20%) variables are generated according to a Bernouilli distribution with $p = 0.5$.
 
-Let's try a very trivial data setup, which does not actually allows me directly to see what the true $\beta$ is. So it's far from ideal. We will take an increasing predictor $x_i = 1, 2, 3, ..., 100$ and an associated outcome $y_i = 0, ... 0, 1, ..., 1$, i.e. 0 for the first $2n/5$ and 1 for the last $2n/5$ observations, for the middle we need some overlap in the observations to not have perfect separation. To do this the middle $n/5$ variables are generated according to a Bernouilli distribution with $p = 0.5$.
-
-```{r 23_04_18}
+```{r logit_manual_ld}
 # Setting amount of obs:
 n <- 200
 
 # Predictors
-X <- as.data.frame(matrix(seq(from = 1, to = n, by = 1),
-                          nrow = n,
-                          ncol = 1))
-names(X) <- "X1"
-
+X <- 1:n
+  
 # Outcome
 set.seed(1234)
-y <- c(rep(0, ((2/5) * n)),
+y <- c(rep(0, ((2/5) * n)), # 40 pct 0, 40pct 1, 20 pct: rbinom 50/50 in the middle to get OVERLAP
        rbinom(n = n/5, size = 1, prob = 0.50),
        rep(1, (2/5) * n))
 
+# Data.frame:
+data <- data.frame(y = y,
+                   X = X)
+
+# Plotting
+plot(x = X,
+     y = y,
+     main = "Visualizing binary data")
 ```
 
 Only clean data:
-```{r}
+```{r plotting_logit}
 # Fitting logit
-logit1 <- glm(y ~ X, data = , family = binomial(link = "logit"))
+logit1 <- glm(y ~ X, 
+              family = binomial(link = "logit"),
+              data = data)
 logit1
 
-## Plotting
 # Getting predictions to plot:
 logit1_preds_prob <- predict(logit1, type = "response")
 logit1_preds_class <- ifelse(test = logit1_preds_prob > 0.5, yes = 1, no = 0)
 
 # Plotting
 plot(x = X,
-     y = y)
+     y = y,
+     main = "Unidimensional Logit - No Outliers")
+abline(h = 0.5, lty = 2)
 lines(x = X,
       y = logit1_preds_prob)
 points(x = X, 
        y = logit1_preds_class,
        pch = 2,
        col = "red")
-
+legend("bottomright",
+       legend = c("True Outcome",
+                  "Class Prediction"),
+       pch = 1:2,
+       col = 1:2)
 ```
 
-Adding leverage points
-```{r}
-# Adding leverage point
-#y[10] <- 1
-y[9:15] <- 1
+Now let's add leverage points to the example above somehow. We see that for X-values above (ca.) 100 the predictions are all 1, while those for X-values below 100 are 0. So let's try to add some 0-outcomes for those X-values above 200 (max of range of clean data), this will be very atypical, a leverage point. We will do this for the last 10 points of data (X = 190, ..., X = 200)
+```{r plotting_logit_leverage}
+# Setting y = 0 where it should be 1
+data_dirty <- data # Copy
+data_dirty[190:200, 1] <- 0 # Contaminate
+data_dirty[190:200, 2] <- 290:300 # More leverage
 
-# Fitting
-logit2 <- glm(y ~ X, family = binomial(link = "logit"))
-logit2
 
-## Plotting
+# Fitting on dirty data
+logit2 <- glm(y ~ X, 
+              family = binomial(link = "logit"),
+              data = data_dirty)
+summary(logit2)
+
+# Predictions
 logit2_preds_prob <- predict(logit2, type = "response")
 logit2_preds_class <- ifelse(test = logit2_preds_prob > 0.5, yes = 1, no = 0)
 
 # Plotting
-plot(x = X,
-     y = y)
-lines(x = X,
+plot(x = data_dirty$X,
+     y = data_dirty$y,
+     main = "Unidimensional Logit - WITH Leverage Points",
+     xlab = "X",
+     ylab = "y")
+lines(x = data_dirty$X,
       y = logit2_preds_prob)
 points(x = X,
        y = logit2_preds_class,
        pch = 2,
        col = "red")
+legend("topleft",
+       legend = c("True Outcome",
+                  "Class Prediction"),
+       pch = 1:2,
+       col = 1:2)
 
-
+# Comparing coefs clean vs. dirty
+coef(logit1)
+coef(logit2)
 ```
 
-# New try 24/04
+Seeing how leverage points influence the fitted logit model and the related coefficients, the impact is obviously huge. However we actually not really know what the true value of the betas should be here due to our very simplistic setup!
 
-Okay now let's say one takes the cleanest approach by generating from a Binomial distribution that is parametrized as the logistic transformation of a structural component. (See:
-https://stats.stackexchange.com/questions/127226/logistic-regression-simulation-in-order-to-show-that-intercept-is-biased-when-y
+Hence let's assume the following setup: we assume a Bernouilli distributed outcome, parametrized by the probability parmaeter $p$, and this $p = f(X, \beta)$, i.e. is some function of a structural component parametrized by $X$ and $\beta$. (See also: https://stats.stackexchange.com/questions/127226/logistic-regression-simulation-in-order-to-show-that-intercept-is-biased-when-y)
 
-)
-
-
-First, let us remind ourselves of the logistic transformation (function), which is not the logit transformation. Let's present the logistic function in two equivalent forms:
+First, let us remind ourselves of the __logistic__ transformation (function), which is not the __logit__ transformation (it is the inverse logit). Let's present the logistic function in two equivalent forms:
 $$f(x) = \frac{e^x}{1+e^x} = \frac{1}{1 + e^{-x}}$$
 
 While the logit function is the inverse of this function and is in very general notation equal to:
@@ -383,10 +452,10 @@ $$f(x) = log(\frac{x}{1 - x})$$
 Also note we can write the odds as the exponential taken of the log odds, as it is a 0-operation:
 
 $$odds = \exp(log(odds))$$
-Then see one can write the probability of the event $p$ sometimes denotes as $\pi$ as (note we now start going from $x$ to $p$ to get a bit less general)
+Then see one can write the probability of the event $p$ (sometimes denotes as $\pi$) as (note we now start going from $x$ to $p$ to get a bit less general and more into the logit framework/language)
 
 $$p = \frac{odds}{1 + odds}$$
-To see why remember that $odds = \frac{p}{1-p}$ so rewriting the above statement leads to the following, they should be equivalent (i.e. $p = p$) if the above statement is true
+To see why, remember that $odds = \frac{p}{1-p}$ so rewriting the above statement leads to the following, they should be equivalent (i.e. $p = p$) if the above statement is true
 
 $$p = \frac{p/(1-p)}{1 + p/(1-p)} $$
 $$p = \frac{p/(1-p)}{[(1-p)/(1-p)] + [p/(1-p)]} = \frac{p/(1-p)}{(1 - p + p)/(1-p)} = \frac{p/(1-p)}{1/(1-p)} = \frac{p (1-p)}{1 - p} = p$$
@@ -396,7 +465,9 @@ Why is this useful? Because we also know that
 
 $$log(odds) = \boldsymbol{X \beta}$$
 
-```{r}
+In other words: the logit model is linear in terms of log-odds.
+
+```{r logit_ld_alternative_dgp}
 # Defining log-odds to probability function
 lo2p = function(lo){
   odds = exp(lo)        
@@ -405,59 +476,116 @@ lo2p = function(lo){
 }
 
 # Setting DGP parameters
-N     <- 1000  # 1000 obs
-beta0 <- 0     # intercept
-beta1 <- 0   # slope
-#beta2 <- 1.5
-r     = 200  # amount of simulations
+n <- 1000  # 1000 obs
+beta0 <- 0.25 # intercept
+beta1 <- 1 # slope
+r <- 200 # amount of simulations
 
 # Generating data
-#set.seed(1234)
-x1 <- rnorm(N)          # Standard normal covariate
-#x2 <- rnorm(N)
-lo = beta0 + beta1 * x1 #+ beta2 * x2  # log-odds
-p = lo2p(lo)          # these will be the parameters of the binomial response (note this is a vector of length 1000!)
+X <- rnorm(n) # Standard normal covariate
+lo <- beta0 + beta1 * X # log-odds
+p <- lo2p(lo) # Parameter vector of the Bernouilli
+y <- rbinom(n = n, size = 1, prob = p) # 0/1 outcomes parametrized by p
 
-beta_hat0 = vector(length = r)  # these will store the estimation results
-beta_hat1 = vector(length = r)
-#beta_hat2 <- vector(length = r)
-y1prp = vector(length = r)  # (for the proportion of y=1)
+# Also Ordering the data according to increasing X, makes life easier
+idX <- order(X) # Indices, yes do this in 2 steps, otherwise messy!
 
-for(i in 1:r){         # here is the simulation
-  y        = rbinom(n = N, size = 1, prob = p)
-  m        = glm(y ~ x1, family = binomial)
-  beta_hat0[i]   = coef(m)[1]
-  beta_hat1[i]   = coef(m)[2]
-  #beta_hat2[i] <- coef(m)[3]
-  y1prp[i] = mean(y)
+X <- X[idX]
+y <- y[idX]
+
+# Running a single logit
+logit3 <- glm(y ~ X,
+              family = binomial(link = "logit"))
+
+# Getting predictions to plot:
+logit3_preds_prob <- predict(logit3, type = "response")
+logit3_preds_class <- ifelse(test = logit3_preds_prob > 0.5, yes = 1, no = 0)
+
+
+
+## Plotting
+# True points
+plot(x = X,
+     y = y)
+# Logit line
+lines(x = X,
+      y = logit3_preds_prob)
+
+# Predicted points
+points(x = X,
+       y = logit3_preds_class,
+       pch = 2,
+       col = "red")
+# Legend
+legend("bottomright",
+       legend = c("True Outcome",
+                  "Class Prediction"),
+       pch = 1:2,
+       col = 1:2)
+
+# These will store the estimation results
+beta_hat0 <- numeric(r)  
+beta_hat1 <- numeric(r)
+y1_prop <- numeric(r) # Proportion of y = 1 in generated samples
+
+# Running simulation (note: only y is random now, X fixed over samples)
+for(i in 1:r){
+  y <- rbinom(n = n, size = 1, prob = p)
+  model <- glm(y ~ X, family = binomial(link = "logit"))
+  beta_hat0[i] <- coef(model)[1]
+  beta_hat1[i] <- coef(model)[2]
+  y1_prop[i] <- mean(y)
 }
 
-# these are the results
+## Results (over all simulation runs)
+# Beta0
 mean(beta_hat0)  
 sd(beta_hat0)
+
+# Beta1
 mean(beta_hat1)
 sd(beta_hat1)
 
+# Proportion y = 1
+mean(y1_prop) # Slightly unbalanced at beta0 = 0.25, beta1 = 1
 ```
 
-Alternatively:
-```{r}
-set.seed(666)
-x1 = rnorm(1000)           # some continuous variables 
-x2 = rnorm(1000)
-z = 1 + 2*x1 + 3*x2        # linear combination with a bias
-pr = exp(z)/(1 + exp(z))         # pass through an inv-logit function
-y = rbinom(1000,1,pr)      # bernoulli response variable
- 
-# Now feed it to glm:
-df = data.frame(y=y,x1=x1,x2=x2)
-glm( y~x1+x2,data=df,family="binomial")
+Let's add some outliers now to the alternate DGP we had before. Therefore we take the last e.g. 50 points of the ordered X-values, make them a tad bigger (e.g. 5) and make the corresponding y-values 0 instead of 1.
+```{r logit_alternative_contamination}
+# Single logit
+X[950:1000] <- 5 + rnorm(n = 1, mean = 0, sd = 1)
+y[950:1000] <- 0
 
-# Checking class imbalance
-table(y) # is approx balanced
+logit4 <- glm(y ~ X,
+              family = binomial(link = "logit"))
+coef(logit4) ; coef(logit3) # The contaminated one is completely off
+
+## Plotting
+# True points
+plot(x = X,
+     y = y,
+     xlim = c(-3, 5.1))
+# Logit line
+lines(x = X,
+      y = logit3_preds_prob)
+
+# Predicted points
+points(x = X,
+       y = logit3_preds_class,
+       pch = 2,
+       col = "red")
+# Legend
+legend("bottomright",
+       legend = c("True Outcome",
+                  "Class Prediction"),
+       pch = 1:2,
+       col = 1:2)
+
 ```
 
-# enetLTS
+
+
+# Logit - enetLTS
 
 Now a single run of the robust and sparse estimator implemented in `enetLTS()` will be tried out. From the help file there are the following arguments:
 
@@ -608,53 +736,6 @@ enetLTS3
 
 So even for 42 alpha and 80 lambda values, the grid was able to be displayed, while using the built-in option was not able to. So probably there is something happening in the logic internally.
 
-Let's look at the example from the help file
-```{r}
-## for gaussian
-
-set.seed(86)
-n <- 10000; p <- 25                           # number of observations and variables
-
-beta <- rep(0,p); beta[1:6] <- 1              # 10% nonzero coefficients
-
-sigma <- 0.5                                  # controls signal-to-noise ratio
-
-x <- matrix(rnorm(n = n*p, sigma), nrow=n)    # Special way of filling up the data matrix
-
-e <- rnorm(n,0,1)                             # error terms
-eps <- 0.1                                    # contamination level
-
-m <- ceiling(eps*n)                           # observations to be contaminated
-
-eout <- e; eout[1:m] <- eout[1:m] + 10        # vertical outliers
-yout <- c(x %*% beta + sigma * eout)          # response
-xout <- x; xout[1:m,] <- xout[1:m,] + 10      # bad leverage points
-
-
-fit <- enetLTS(xout,yout,alphas=0.5,lambdas=0.05,plot=FALSE)
-# determine user supplied alpha and lambda sequences
-# alphas=seq(0,1,length=11)
-# l0 <- robustHD::lambda0(xout,yout)          # use # lambda0 function from robustHD package
-# lambdas <- seq(l0,0,by=-0.1*l0)
-# fit <- enetLTS(xout,yout,alphas=alphas,lambdas=lambdas)
-
-
-## for binomial
-
-eps <- 0.05                                     # %10 contamination to only class 0
-m <- ceiling(eps * n)
-y <- sample(0:1,n,replace=TRUE)
-xout <- x
-xout[y==0,][1:m,] <- xout[1:m,] + 10         # class 0
-yout <- y  
-fit <- enetLTS(xx = xout,
-               yy = yout,
-               family = "binomial",
-               intercept = TRUE)
-
-```
-
-The problem I have with this is that the beta's don't come into play at all for the binomial model
 
 
 Generation method according to paper (KHF 2017)
@@ -1036,8 +1117,6 @@ temp_y * log(temp_enetlts1_preds) + (1 - temp_y) * log(1 - temp_enetlts1_preds)
 ```
 Ofcourse logit loss on a test set WITH OUTLIERS is very high! because in that case loss would be infinity!!!!!!!
 
-
-
 Alternate outlier creation:
 ```{r}
 ## Adjusting the outlier creations
@@ -1098,58 +1177,3 @@ str(y)
 
 cor(X)
 ```
-
-I think this is all too much hassle, let's make a new fucntion
-```{r}
-logit_sim <- function(beta_vector, n, runs, seed = 1234, dirty = 0, type){
-  ### LOGIT SIMULATION FUNCTION
-  ## INPUT: beta_vector: a vector of true betas
-  # n: the sample size
-  # runs: amount of simulation runs
-  # seed: a seed number for being able to reproduce
-  # dirty: proportion of outlying cases (by default no outliers)
-  ## OUPUT: A list of models, one for each run
-  
-  set.seed(seed) # Setting seed for reproduceability
-  p <- length(beta_vector) # Total dimensionality (including intercept)
-  
-  n <- n # Sample
-  
-
-  train1 <- binary_reg_dgp1(100, 1, 1, beta = 1, dirty = 0.1, v_outlier = 0) # My idea of vertical outliers
-    
-
-    # Making model formula (for glm function)
-    formula     <- paste("y", paste0("X", 1:(p - 1), collapse = " + "), sep = " ~ ")
-    
-    # glm (Ordinary logit)
-    if(type == "glm"){
-      model_list[[r]] <- glm(formula = formula, 
-                             family = binomial(link = "logit"), 
-                             data = data)
-    }
-    
-    # glmrob (robust)
-    if(type == "glmrob"){
-      model_list[[r]] <- glmrob(formula = formula, 
-                                family = binomial, 
-                                data = data,
-                                method = "WBY") 
-    }
-    
-    # enetLTS (robust, variable selection)
-    if(type == "enetLTS"){
-      model_list[[r]] <- enetLTS(xx = X,
-                                 yy = y,
-                                 family = "binomial",
-                                 hsize = 0.75,
-                                 nfold = 2)
-    }
-      
-    
-
-  }
-  return(model_list)
-}
-```
-
