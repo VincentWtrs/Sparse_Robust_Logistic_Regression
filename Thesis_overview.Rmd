@@ -225,7 +225,8 @@ lts3 <- ltsReg(formula = formula1, data = data1)
 __ TO DO: further check the lts3 problems__
 
 # Logistic Regression
-## Low Dimensional - No Outliers
+## Logistic - Low Dimensional
+### Logistic - LD - No Outliers
 
 If we want multiple runs of such model (i.e. simulation), we need to run it multiple times, now we will automate this using a very simple function (which we will not use much further on, I suppose) and then using `replicate()` on this function. The function will generate data and specify the DGP and fit a logit model, then get the coefficients. By replicating this many times, due to the slightly different data (X) every time being sampled __and__ also due to sampling from the binomial distribution (i.e. even with the exact same probability parameter we ofcourse get different realizations).
 
@@ -342,7 +343,7 @@ lapply(model_list, sim_summary, beta_vector)
 ```
 
 
-## Logistic - LD - Outliers
+### Logistic - LD - With Outliers
 Let's try a very trivial __clean data__ setup, which does not actually allows me directly to see what the true $\beta$ is but gives some insights, far from ideal. We will take an increasing predictor $x_i = 1, 2, 3, ..., 100$ and an associated outcome $y_i = 0, ... 0, 1, ..., 1$, i.e. 0 for the first $2n/5$ (40%) and 1 for the last $2n/5$ (40%) observations, __for the middle we need some overlap in the observations to not have perfect separation__. To do this the middle $n/5$ (20%) variables are generated according to a Bernouilli distribution with $p = 0.5$.
 
 ```{r logit_manual_ld}
@@ -466,7 +467,6 @@ Why is this useful? Because we also know that
 $$log(odds) = \boldsymbol{X \beta}$$
 
 In other words: the logit model is linear in terms of log-odds.
-
 ```{r logit_ld_alternative_dgp}
 # Defining log-odds to probability function
 lo2p = function(lo){
@@ -552,37 +552,166 @@ mean(y1_prop) # Slightly unbalanced at beta0 = 0.25, beta1 = 1
 
 Let's add some outliers now to the alternate DGP we had before. Therefore we take the last e.g. 50 points of the ordered X-values, make them a tad bigger (e.g. 5) and make the corresponding y-values 0 instead of 1.
 ```{r logit_alternative_contamination}
-# Single logit
-X[950:1000] <- 5 + rnorm(n = 1, mean = 0, sd = 1)
-y[950:1000] <- 0
+## Single logit
+# Contamination
+X_dirty <- X
+X_dirty[950:1000] <- 5 + rnorm(n = length(X_dirty[950:1000]), mean = 0, sd = 1)
 
-logit4 <- glm(y ~ X,
+y_dirty <- y
+y_dirty[950:1000] <- 0
+
+# Also Ordering the data according to increasing X, makes life easier
+idX <- order(X_dirty) # Indices, yes do this in 2 steps, otherwise messy!
+
+X_dirty <- X_dirty[idX]
+y_dirty <- y_dirty[idX]
+
+# Fitting
+logit4 <- glm(y_dirty ~ X_dirty,
               family = binomial(link = "logit"))
 coef(logit4) ; coef(logit3) # The contaminated one is completely off
 
+# Predicting
+logit4_preds_prob <- predict(logit4, type = "response")
+logit4_preds_class <- ifelse(test = logit4_preds_prob > 0.5, yes = 1, no = 0)
+
 ## Plotting
 # True points
-plot(x = X,
-     y = y,
-     xlim = c(-3, 5.1))
-# Logit line
+plot(x = X_dirty,
+     y = y_dirty,
+     xlim = c(-3, 5.1),
+     main = "Comparison of logit on clean data versus contaminated data")
+# Logit line (Clean only)
 lines(x = X,
-      y = logit3_preds_prob)
-
-# Predicted points
+      y = logit3_preds_prob,
+      lty = 2,
+      col = "gray")
+# Logit line (contaminated data)
+lines(x = X_dirty,
+      y = logit4_preds_prob)
+# Predicted Classes (On dirty)
 points(x = X,
-       y = logit3_preds_class,
+       y = logit4_preds_class,
        pch = 2,
        col = "red")
 # Legend
-legend("bottomright",
+legend("topright",
        legend = c("True Outcome",
                   "Class Prediction"),
        pch = 1:2,
        col = 1:2)
+legend("topleft",
+       legend = c("Logit: All data",
+                  "Logit: Clean data only"),
+       lty = 1:2,
+       col = c("black", "gray"))
 
 ```
 
+## Logistic - High Dimensional
+### Logistic - HD - No Outliers
+
+We simply use the DGP functions from before, set the dimensionality to be higher, amount of contamination to 0 and run some fitting functions such as `glm()` and `glmnet()`.
+
+
+```{r}
+# Creating training set (clean in this case)
+train1 <- binary_reg_dgp2(n = 100,
+                          p = 50,
+                          p_a = 5,
+                          beta = c(rep(1, 5), rep(0, 45)),
+                          dirty = 0,
+                          type = "bernoulli")
+
+# Creating a test set (ALWAYS clean data!)
+test1 <- binary_reg_dgp2(n = 100,
+                          p = 50,
+                          p_a = 5,
+                          beta = c(rep(1, 5), rep(0, 45)),
+                          dirty = 0,
+                          type = "bernoulli")
+# Ordinary logit
+logit5 <- glm(y ~ ., 
+              family = binomial(link = "logit"),
+              control = glm.control(maxit = 200),
+              data = train1)
+summary(logit5)
+
+### GLMNET
+# Converting data
+train1_X <- data.matrix(train1)[, -1]
+train1_y <- data.matrix(train1)[, 1]
+
+test1_X <- data.matrix(test1)[, -1]
+test1_y <- data.matrix(test1)[, 1]
+
+## LASSO logit (glmnet: alpha = 1)
+lasso_logit1 <- cv.glmnet(x = train1_X,
+                          y = train1_y,
+                          family = "binomial",
+                          alpha = 1,
+                          type.measure = "deviance")
+# Coefficients
+coef(lasso_logit1, s = "lambda.min") # Absolute minimum lambda attained over CV
+coef(lasso_logit1, s = "lambda.1se") # 1SE rule (more spare models)
+
+# Predictions
+lasso_logit1_preds_prob <- predict(lasso_logit1, 
+                                   newx = test1_X,
+                                   type = "response",
+                                   s = "lambda.min")
+# Loss
+lasso_logit1_loss <- logit_loss(y_true = test1_y,
+           prob_hat = lasso_logit1_preds_prob)
+
+
+## Ridge logit (glmnet: alpha = 0)
+ridge_logit1 <- cv.glmnet(x = train1_X,
+                          y = train1_y,
+                          family = "binomial",
+                          alpha = 0,
+                          type.measure = "deviance")
+# Coefficients
+coef(ridge_logit1, s = "lambda.min")
+coef(ridge_logit1, s = "lambda.1se")
+
+# Predictions
+ridge_logit1_preds_prob <- predict(ridge_logit1, 
+                                   newx = test1_X,
+                                   type = "response",
+                                   s = "lambda.min")
+# Loss
+ridge_logit1_loss <- logit_loss(y_true = test1_y,
+                    prob_hat = ridge_logit1_preds_prob)
+
+## Elastic Net logit (e.g. alpha = 0.75)
+enet_logit1 <- cv.glmnet(x = train1_X,
+                         y = train1_y,
+                         family = "binomial",
+                         alpha = 0.75,
+                         type.measure = "deviance")
+# Coefficients
+coef(enet_logit1, s = "lambda.min")
+coef(enet_logit1, s = "lambda.1se")
+
+# Predictions
+enet_logit1_preds_prob <- predict(enet_logit1,
+                                  newx = test1_X,
+                                  type = "response",
+                                  s = "lambda.min")
+# Loss
+enet_logit1_loss <- logit_loss(y_true = test1_y,
+                               prob_hat = enet_logit1_preds_prob)
+
+# Plotting losses in boxplot
+loss_comparison1 <- cbind(ridge_logit1_loss$loss, lasso_logit1_loss$loss, enet_logit1_loss$loss)
+colnames(loss_comparison1) <- c("lasso", "ridge", "alpha = 0.75")
+
+boxplot(loss_comparison1, 
+        main = "Comparison of average loss on some Elastic Net Models")
+```
+
+So we see the models are very comparable in terms of loss, but ofcourse no outliers are introduced yet here!
 
 
 # Logit - enetLTS
@@ -593,98 +722,65 @@ Now a single run of the robust and sparse estimator implemented in `enetLTS()` w
 * `yy`: response variable. For family = "binomial", this should be a factor coded as 0/1.
 * `family`: a description of the error distribution and link function, "binomial" in our case
 * `alphas`: ...
-* ... 
+* 
 
-[TO DO]
-```{r enetLTS_data}
-# Setting parameters    
-n <- 1000
-dirty <- 0.03
-p <- 10
-beta_vector <- c(1, 2, 3, 0.7, 0.5, 0, 0, 0, 0, 0) # Including intercept!
+__To do: continue the documentation__
 
-
-n_dirty <- round(dirty * n, 0)
-n_clean <- n - n_dirty
-
-# Design matrix
-X_matrix <- matrix(nrow = n_clean, ncol = p)
-X_matrix[, 1] <- rep(1, times = n_clean)
-for(j in 2:p){
-  X_matrix[, j] <- rnorm(n = n_clean)
-}
-
-# Linear predictor XB (eta)
-eta_vector <- X_matrix %*% beta_vector
-
-## Generating outcome
-# Expected value (p sometimes pi)
-prob_vector <- exp(eta_vector)/(1 + exp(eta_vector))
-
-# Actual 0/1 Bernouilli outcomes
-y_vector <- rbinom(n = n_clean,
-                   size = 1,
-                   prob = prob_vector)
-
-
-# Dirty samples
-X_dirty <- matrix(nrow = n_dirty, ncol = p)
-X_dirty[, 1] <- rep(1, times = n_dirty)
-for(j in 2:p){
-  X_dirty[, j] <- runif(n = n_dirty, min = 0.7, max = 3)
-}
-y_dirty <- rep(0, times = n_dirty)
-
-# Combining (adding the rows)
-y <- c(y_vector, y_dirty)
-X <- rbind(X_matrix, X_dirty)
-
-
-# In data frame format
-data_X       <- as.data.frame(cbind(X[, -1])) # Removing intercept because formula interface will do this automatically
-names(data_X) <- paste0("X", 1:(p - 1))
-
-X <- data.matrix(data_X)
-
-table(y)
-str(y)
-```
-
-__WE HAVE TO USE DATA.MATRIX, which is kind of strange__
+We will first create a training set (with contaminated data) and a clean dataset (same DGP, but setting dirty = 0). Then we run enetLTS using the first column of the training set as the outcome (`yy`) and all the other columns as the covariates (`xx`).
 
 ```{r enetLTS_fitting}
-enetLTS1 <- enetLTS(xx = data_temp,
-                    yy = y,
+# Creating a training set
+train1 <- binary_reg_dgp2(n = 100,
+                          p = 50,
+                          p_a = 5,
+                          beta = c(rep(1, 5), rep(0, 45)),
+                          dirty = 0.1,
+                          type = "bernoulli")
+
+# Creating a test set (clean data!)
+test1 <- binary_reg_dgp2(n = 100,
+                          p = 50,
+                          p_a = 5,
+                          beta = c(rep(1, 5), rep(0, 45)),
+                          dirty = 0,
+                          type = "bernoulli")
+
+## Fitting enetLTS: different options
+# DEFAULT enetLTS
+enetLTS1 <- enetLTS(xx = train1[, -1],
+                    yy = train1[, 1],
+                    family = "binomial")
+
+# enetLTS: User supplied alpha/lambdas
+enetLTS2 <- enetLTS(xx = train1[, -1],
+                    yy = train1[, 1],
                     family = "binomial",
                     intercept = TRUE, # Default: TRUE
                     nfold = 5, # Default: 5
                     repl = 3, # Default: 5
                     alpha = c(seq(0, 1, 0.05)),
-                    lambdas = c(2e-5, 2e-4, 2e-3, 2e-2, 2e-1, 2e0, 3, 4, 5)) 
-enetLTS1
+                    lambdas = c(2e-5, 2e-4, 2e-3, 2e-2, 2e-1, 2e0, 3, 4, 5))
+enetLTS2
 
-enetLTS2 <- enetLTS(xx = X,
-                    yy = y,
+# enetLTS3: User supplied amount of alpha/lambdas
+enetLTS3 <- enetLTS(xx = train1[, -1],
+                    yy = train1[, 1],
                     family = "binomial",
                     intercept = TRUE, # Default: TRUE
                     nfold = 2, # Default: 5
                     repl = 2, # Default: 5
                     alpha = seq(0, 1, length = 20),
                     lambdas = seq(0, 4, length =  40))
-enetLTS2
+enetLTS3
+
+
+
+
 summary(enetLTS2)
 coef(enetLTS2)
--mean(y * log(unname(unlist(predict(enetLTS2, newX = X_test)))) + (1 - y) * log((1 - unname(unlist(predict(enetLTS2, newX = X_test))))))
-# 0.7753325 # test loss on clean test data
 
-enetLTS_test <- enetLTS(xx = X,
-                    yy = y,
-                    family = "binomial",
-                    intercept = TRUE, # Default: TRUE
-                    nfold = 2, # Default: 5
-                    repl = 2, # Default: 5
-                    alpha = seq(0, 1, length = 20),
-                    lambdas = seq(0, 2, length =  40))
+
+
 
 
 cvglmnet1 <- cv.glmnet(x = X,
@@ -738,93 +834,6 @@ So even for 42 alpha and 80 lambda values, the grid was able to be displayed, wh
 
 
 
-Generation method according to paper (KHF 2017)
-```{r}
-#set.seed(123)
-
-# Setting parameters
-n <- 150 # Sample size
-p <- 50 # Dimensionality (excluding intercept)
-p_a <- 0.1 * p # Informative dimensionality (true dimensionality)
-p_b <- p - p_a # Uninformative dimensionality
-
-## Creating informative predictors
-# Covariance matrix (sigma_a)
-rho_a <- 0.9 # Base rho
-
-sigma_a <- matrix(NA, nrow = p_a, ncol = p_a)
-for(i in 1:p_a){
-  for(j in 1:p_a){
-    sigma_a[i, j] <- rho_a^(abs(i - j))
-  }
-}
-
-X_a <- rmvnorm(n = n,
-               mean = rep(0, p_a),
-               sigma = sigma_a)
-
-## Creating uninformative predictors
-rho_b <- 0.5
-
-sigma_b <- matrix(NA, nrow = p_b, ncol = p_b)
-
-for(i in 1:p_b){
-  for(j in 1:p_b){
-    sigma_b[i, j] <- rho_b^(abs(i - j))
-  }
-}
-
-X_b <- rmvnorm(n = n,
-               mean = rep(0, p_b),
-               sigma = sigma_b)
-
-# Combining
-X <- cbind(X_a, X_b)
-
-# True Beta vector
-beta <- c(rep(1, p_a), rep(0, p_b))
-
-# Errors
-e <- rnorm(n = n)
-
-# Continuous Underlying DGP
-y_cont <- 1 + X %*% beta + e
-
-# Dichotomizing
-y <- ifelse(test = y_cont > 0, yes = 1, no = 0)
-
-## CONTAMINATION
-# Leverage points
-n_0 <- sum(y == 0)
-n_1 <- sum(y == 1)
-
-X_a[y == 0, ][1:floor(0.1*n_0), ] <- rmvnorm(n = floor(0.1 * n_0), mean = rep(20, p_a))
-# Explanation: taking informative variables only, taking only observations equal to 0, and taking 10% of those and replacing by high values
-
-y[y == 0][1:floor(0.1*n_0)] <- 1 # Wrong membership
-# Same observations and assigning wrong class membership
-
-# Combining again
-X <- cbind(X_a, X_b)
-
-
-## TEST DATA (NO OUTLIERS!)
-X_test_a <- rmvnorm(n = n,
-               mean = rep(0, p_a),
-               sigma = sigma_a)
-X_test_b <- rmvnorm(n = n,
-               mean = rep(0, p_b),
-               sigma = sigma_b)
-X_test <- cbind(X_test_a, X_test_b)
-e_test <- rnorm(n = n)
-y_test_cont <- 1 + X_test %*% beta + e_test
-y_test <- ifelse(test = y_test_cont > 0, yes = 1, no = 0)
-
-
-
-
-```
-Does this make sense, first we are making leverage points, then we actually fix the class memberships it seems...
 
 
 Trying out some models using this DGP method:
