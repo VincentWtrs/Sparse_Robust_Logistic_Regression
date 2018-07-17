@@ -1,10 +1,12 @@
-logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty = 0, type = "latent"){
+logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty = 0, type, dgp = "latent"){
   ### LOGIT SIMULATION FUNCTION
   ## INPUT: beta_vector: a vector of true betas
   # n: the sample size (integer)
   # runs: amount of simulation runs (integer)
   # seed: a seed number for being able to reproduce
   # dirty: proportion of outlying cases (by default no outliers, decimal)
+  # type: type of estimator
+  # dgp: latent or bernoulli DGP from binary_reg_dgp
   ## OUPUT: A list of models, one for each run
   
   
@@ -22,7 +24,7 @@ logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty
                                           beta = beta,
                                           sigma_in = sigma_in,
                                           dirty = dirty,
-                                          type = type,
+                                          type = dgp,
                                           v_outlier = 0,
                                           test = FALSE)
     
@@ -32,7 +34,7 @@ logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty
                                       beta = beta,
                                       sigma_in = sigma_in,
                                       dirty = 0,
-                                      type = type,
+                                      type = dgp,
                                       v_outlier = 0,
                                       test = TRUE)
   }
