@@ -1,4 +1,4 @@
-logit_sim <- function(beta, sigma = NULL, p, p_a, n, runs, seed = 1234, dirty = 0, type){
+logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty = 0, type = "latent"){
   ### LOGIT SIMULATION FUNCTION
   ## INPUT: beta_vector: a vector of true betas
   # n: the sample size (integer)
@@ -16,21 +16,23 @@ logit_sim <- function(beta, sigma = NULL, p, p_a, n, runs, seed = 1234, dirty = 
   predictions <- vector("list", length = runs)
   
   for(i in 1:runs){
-    training_data[[i]] <- binary_reg_dgp1(n = n,
+    training_data[[i]] <- binary_reg_dgp2(n = n,
                                           p = p,
                                           p_a = p_a,
                                           beta = beta,
-                                          sigma = sigma,
+                                          sigma_in = sigma_in,
                                           dirty = dirty,
+                                          type = type,
                                           v_outlier = 0,
                                           test = FALSE)
     
-    test_data[[i]] <- binary_reg_dgp1(n = n,
+    test_data[[i]] <- binary_reg_dgp2(n = n,
                                       p = p,
                                       p_a = p_a,
                                       beta = beta,
-                                      sigma = sigma,
+                                      sigma_in = sigma_in,
                                       dirty = 0,
+                                      type = type,
                                       v_outlier = 0,
                                       test = TRUE)
   }
@@ -193,10 +195,10 @@ logit_sim <- function(beta, sigma = NULL, p, p_a, n, runs, seed = 1234, dirty = 
     loss[[r]] <- logit_loss(y_true = y_true, prob_hat = preds) # Applying logit_loss function per run
     run_avg_loss[r] <- unlist(loss[[r]]$avg_loss) # Calculating avg per run
   }
-  # Calculating avg loss 
+  # Calculating avg (over-runs-average) -loglik loss 
   avg_loss <- mean(run_avg_loss) # Calculating avg over all runs
   
-  # Classification error loss
+  # Classification error loss (same idea as above)
   misclass <- vector("list", lengt = runs)
   run_avg_misclass <- numeric(runs)
   for(r in 1:runs){
@@ -206,8 +208,8 @@ logit_sim <- function(beta, sigma = NULL, p, p_a, n, runs, seed = 1234, dirty = 
     run_avg_misclass[r] <- mean(misclass[[r]])
   }
   
+  # Calcualting avg (over-runs-average) missclass loss
   avg_misclass <- mean(run_avg_misclass)
-  
   
   
   # OUPUT
