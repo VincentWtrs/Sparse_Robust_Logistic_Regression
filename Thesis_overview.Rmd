@@ -611,11 +611,10 @@ legend("topleft",
 ## Logistic - High Dimensional
 ### Logistic - HD - No Outliers
 
-We simply use the DGP functions from before, set the dimensionality to be higher, amount of contamination to 0 and run some fitting functions such as `glm()` and `glmnet()`.
-
+Now that we have the data generating process function and plotting is not doable anymore due to the multiple dimensions. Hence we will not split up the outlying/non-outlying cases in different titles. So we simply use the DGP functions from before, set the dimensionality to be higher, amount of contamination to 0 and run some fitting functions such as `glm()` and `glmnet()` and `enetLTS()`.
 
 ```{r}
-# Creating training set (clean in this case)
+# Creating training set (clean in this first case)
 train1 <- binary_reg_dgp2(n = 100,
                           p = 50,
                           p_a = 5,
@@ -635,7 +634,16 @@ logit5 <- glm(y ~ .,
               family = binomial(link = "logit"),
               control = glm.control(maxit = 200),
               data = train1)
-summary(logit5)
+
+# Coefficients
+coef(logit5)
+
+# Predictions
+logit5_preds_prob <- predict(logit5,
+                             newx = test1_X,
+                             type = "response")
+logit5_loss <- logit_loss(y_true = test1_y,
+                          prob_hat = logit5_preds_prob)
 
 ### GLMNET
 # Converting data
@@ -703,57 +711,175 @@ enet_logit1_preds_prob <- predict(enet_logit1,
 enet_logit1_loss <- logit_loss(y_true = test1_y,
                                prob_hat = enet_logit1_preds_prob)
 
-# Plotting losses in boxplot
-loss_comparison1 <- cbind(ridge_logit1_loss$loss, lasso_logit1_loss$loss, enet_logit1_loss$loss)
-colnames(loss_comparison1) <- c("lasso", "ridge", "alpha = 0.75")
+### enetLTS
+enetLTS_logit1 <- enetLTS(xx = train1[, -1],
+                    yy = train1[, 1],
+                    family = "binomial")
 
+# Predictions
+enetLTS_logit1_preds_prob <- predict(enetLTS_logit1, 
+                                     newX = test1_X,
+                                     vers = "reweighted",
+                                     type = "response")
+enetLTS_logit1_preds_prob <- unlist(unname(enetLTS_logit1_preds_prob))
+
+# Loss
+enetLTS_logit1_loss <- logit_loss(y_true = test1_y,
+                                  prob_hat = enetLTS_logit1_preds_prob)
+
+
+## Plotting losses in boxplot
+# Combining losses in matrix
+loss_comparison1 <- cbind(logit5_loss$loss, ridge_logit1_loss$loss, lasso_logit1_loss$loss, enet_logit1_loss$loss, enetLTS_logit1_loss$loss)
+colnames(loss_comparison1) <- c("logit", "lasso", "ridge", "a .75", "enetLTS") # Giving column names
+
+# Plotting
 boxplot(loss_comparison1, 
         main = "Comparison of average loss on some Elastic Net Models")
+
+# Plotting (zoomed in)
+boxplot(loss_comparison1,
+        main = "Comparison of average loss on some Elastic Net Models",
+        ylim = c(0, 1))
+
+# Other view: checking means of losses
+loss_mean_comparison2 <- cbind(logit5_loss$avg_loss, lasso_logit1_loss$avg_loss, ridge_logit1_loss$avg_loss, enet_logit1_loss$avg_loss, enetLTS_logit1_loss$avg_loss)
+colnames(loss_mean_comparison2) <- c("logit", "lasso", "ridge", "a .75", "enetLTS")
+
+loss_mean_comparison2
 ```
 
 So we see the models are very comparable in terms of loss, but ofcourse no outliers are introduced yet here!
 
+__TO DO: maybe cv.glmnet tuned for alpha as well (manually)__
 
-# Logit - enetLTS
-
-Now a single run of the robust and sparse estimator implemented in `enetLTS()` will be tried out. From the help file there are the following arguments:
-
-* `xx`: a numeric matrix containing the predictor variables
-* `yy`: response variable. For family = "binomial", this should be a factor coded as 0/1.
-* `family`: a description of the error distribution and link function, "binomial" in our case
-* `alphas`: ...
-* 
-
-__To do: continue the documentation__
+### Logistic - HD - With Outliers 
 
 We will first create a training set (with contaminated data) and a clean dataset (same DGP, but setting dirty = 0). Then we run enetLTS using the first column of the training set as the outcome (`yy`) and all the other columns as the covariates (`xx`).
 
-```{r enetLTS_fitting}
+```{r logit_HD_dirty_fitting}
 # Creating a training set
-train1 <- binary_reg_dgp2(n = 100,
-                          p = 50,
-                          p_a = 5,
-                          beta = c(rep(1, 5), rep(0, 45)),
-                          dirty = 0.1,
-                          type = "bernoulli")
+train1_dirty <- binary_reg_dgp2(n = 100,
+                                p = 50,
+                                p_a = 5,
+                                beta = c(rep(1, 5), rep(0, 45)),
+                                dirty = 0.1,
+                                type = "bernoulli")
+train1_dirty_X <- data.matrix(train1_dirty[, -1])
+train1_dirty_y <- data.matrix(train1_dirty[, 1])
 
-# Creating a test set (clean data!)
-test1 <- binary_reg_dgp2(n = 100,
-                          p = 50,
-                          p_a = 5,
-                          beta = c(rep(1, 5), rep(0, 45)),
-                          dirty = 0,
-                          type = "bernoulli")
+# Test set (just take one from before: HAS TO BE CLEAN!!!)
 
-## Fitting enetLTS: different options
-# DEFAULT enetLTS
-enetLTS1 <- enetLTS(xx = train1[, -1],
-                    yy = train1[, 1],
+## logit (ordinary)
+logit6 <- glm(y ~ .,
+              family = binomial(link = "logit"),
+              control = glm.control(maxit = 200),
+              data = train1_dirty)
+
+# Predictions
+logit6_preds_prob <- predict(logit6,
+                             newdata = data.frame(test1_X),
+                             type = "response")
+# Loss
+logit6_loss <- logit_loss(y_true = test1_y,
+                          prob_hat = logit6_preds_prob)
+
+### glmnet
+## LASSO
+lasso_logit2 <- cv.glmnet(x = train1_dirty_X,
+                          y = train1_dirty_y,
+                          family = "binomial",
+                          alpha = 1,
+                          type.measure = "deviance")
+
+# Predictions
+lasso_logit2_preds_prob <- predict(lasso_logit2,
+                                   newx = test1_X,
+                                   type = "response",
+                                   s = "lambda.min")
+# Loss
+lasso_logit2_loss <- logit_loss(y_true = test1_y,
+                                prob_hat = lasso_logit2_preds_prob)
+
+
+
+## Ridge
+ridge_logit2 <- cv.glmnet(x = train1_dirty_X,
+                          y = train1_dirty_y,
+                          family = "binomial",
+                          alpha = 0,
+                          type.measure = "deviance")
+
+# Predictions
+ridge_logit2_preds_prob <- predict(ridge_logit2,
+                                   newx = test1_X,
+                                   type = "response",
+                                   s = "lambda.min")
+# Loss
+ridge_logit2_loss <- logit_loss(y_true = test1_y,
+                                prob_hat = ridge_logit2_preds_prob)
+
+## Elastic net: Alpha = 0.75
+enet_logit2 <- cv.glmnet(x = train1_dirty_X,
+                         y = train1_dirty_y,
+                         family = "binomial",
+                         alpha = 0.75,
+                         type.measure = "deviance")
+
+# Predictions
+enet_logit2_preds_prob <- predict(enet_logit2,
+                                  newx = test1_X,
+                                  type = "response",
+                                  s = "lambda.min")
+# Loss
+enet_logit2_loss <- logit_loss(y_true = test1_y,
+                               prob_hat = enet_logit2_preds_prob)
+
+
+
+## DEFAULT enetLTS
+enetLTS_logit2 <- enetLTS(xx = train1_dirty[, -1],
+                    yy = train1_dirty[, 1],
                     family = "binomial")
 
+# Predictions
+enetLTS_logit2_preds_prob <- unlist(unname(predict(enetLTS_logit2,
+                                                   newX = test1_X,
+                                                   type = "response",
+                                                   version = "reweighted")))
+
+# Loss
+enetLTS_logit2_loss <- logit_loss(y_true = test1_y,
+                                  prob_hat = enetLTS_logit2_preds_prob)
+
+## Plotting losses
+loss_comparison2 <- cbind(logit6_loss$loss, lasso_logit2_loss$loss, ridge_logit2_loss$loss, enet_logit2_loss$loss, enetLTS_logit2_loss$loss)
+colnames(loss_comparison2) <- c("logit", "lasso", "ridge", "a .75", "enetLTS")
+
+# Plot
+boxplot(loss_comparison2)
+
+
+# Plot zoomed-in
+boxplot(loss_comparison2,
+        ylim = c(0, 1))
+
+# Comparison with clean data and dirty data together
+loss_comparison3 <- cbind(loss_comparison1, loss_comparison2)
+boxplot(loss_comparison3)
+boxplot(loss_comparison3, ylim = c(0, 1))
+
+# Not always a good view: checking means of loss
+loss_mean_comparison3 <- cbind(logit6_loss$avg_loss, lasso_logit2_loss$avg_loss, ridge_logit2_loss$avg_loss, enet_logit2_loss$avg_loss, enetLTS_logit2_loss$avg_loss)
+colnames(loss_mean_comparison3) <- c("logit", "lasso", "ridge", "a .75", "enetLTS")
+
+loss_mean_comparison3
+
+
+
 # enetLTS: User supplied alpha/lambdas
-enetLTS2 <- enetLTS(xx = train1[, -1],
-                    yy = train1[, 1],
+enetLTS2 <- enetLTS(xx = train1_dirty[, -1],
+                    yy = train1_dirty[, 1],
                     family = "binomial",
                     intercept = TRUE, # Default: TRUE
                     nfold = 5, # Default: 5
@@ -763,8 +889,8 @@ enetLTS2 <- enetLTS(xx = train1[, -1],
 enetLTS2
 
 # enetLTS3: User supplied amount of alpha/lambdas
-enetLTS3 <- enetLTS(xx = train1[, -1],
-                    yy = train1[, 1],
+enetLTS3 <- enetLTS(xx = train1_dirty[, -1],
+                    yy = train1_dirty[, 1],
                     family = "binomial",
                     intercept = TRUE, # Default: TRUE
                     nfold = 2, # Default: 5
@@ -772,240 +898,19 @@ enetLTS3 <- enetLTS(xx = train1[, -1],
                     alpha = seq(0, 1, length = 20),
                     lambdas = seq(0, 4, length =  40))
 enetLTS3
-
-
-
-
-summary(enetLTS2)
-coef(enetLTS2)
-
-
-
-
-
-cvglmnet1 <- cv.glmnet(x = X,
-                       y = y,
-                       nfolds = 5,
-                       family = "binomial") # Necessary here
-coef(cvglmnet1, s = "lambda.1se")
-coef(cvglmnet1, s = "lambda.min")
-plot(cvglmnet1)
-
-error_min <- cvglmnet1$cvm[cvglmnet1$lambda == cvglmnet1$lambda.min]
-error_min
-
-
-# Lambda min:
-- mean(y * log(predict(cvglmnet1, newx = X_test, s = "lambda.min", type = "response")) + (1 - y) * log((1 - predict(cvglmnet1, newx = X_test, s = "lambda.min", type = "response"))))
-
-
-- mean(y * log(predict(cvglmnet1, newx = X_test, s = "lambda.1se", type = "response")) + (1 - y) * log((1 - predict(cvglmnet1, newx = X_test, s = "lambda.1se", type = "response"))))
-
-# MFC Classifier
-table(y) # 0: 413 ; 1: 587
-mfc_preds <- rep(1, n)
-
-# The cross entropy loss is ofcourse not obtainable here, let's look at missclassification loss:
-mean(y != mfc_preds)
-
-
-# LASSO
-lasso1 <- glmnet(x = X,
-                 y = y,
-                 family = "binomial",
-                 alpha = 1)
-coef(lasso1)
-
-
-enetLTS3 <- enetLTS(xx = data_temp,
-                    yy = y,
-                    family = "binomial",
-                    intercept = TRUE, # Default: TRUE
-                    nfold = 2, # Default: 5
-                    repl = 2)
-
-enetLTS3
-
-
-
 ```
 
-So even for 42 alpha and 80 lambda values, the grid was able to be displayed, while using the built-in option was not able to. So probably there is something happening in the logic internally.
+What about the trivial Most Frequent Class (MFC) classifier. However, this classifier does not produce predicted probabilities, just classes, hence the cross entropy loss cannot be calculated. But the misclassification loss (0-1) loss can be calculated ofcourse.
 
+__TO DO__
 
-
-
-
-Trying out some models using this DGP method:
 ```{r}
-temp <- enetLTS(xx = X,
-                yy = y,
-                family = "binomial",
-                nfold = 5,
-                repl = 2)
-temp
-
-preds_temp <- unlist(unname(predict(temp, newX = X_test, vers = "reweighted", type = "response")))
-preds_temp_class <- unlist(unname(predict(temp, newX = X_test, vers = "reweighted", type = "class")))
-
-loss_temp <- - mean(y_test * log(preds_temp) + (1 - y_test) * log(1 - preds_temp))
-loss_temp # 1.521147
-
-misclass_loss_temp <- mean(preds_temp_class  != y_test)
-misclass_loss_temp # 0.48
-
-temp2 <- enetLTS(xx = X,
-                 yy = y,
-                 family = "binomial",
-                 nfold = 5,
-                 repl = 5,
-                 lambdas = c(2e-7, 2e-6, 2e-5, 2e-4, 2e-3, 3e-2, 2e-2, 1e-2, 2e-1, 2e0, 2e1),
-                 alphas = seq(0, 1, 0.05))
-
-cv_lasso1 <- cv.glmnet(x = X,
-                       y = y,
-                       family = "binomial")
-coef(cv_lasso1, s = "lambda.min")
-
-cv_lasso1_preds <- predict(cv_lasso1, newx = X_test, s = "lambda.min", type = "response")
-cv_lasso1_preds_class <- predict(cv_lasso1, newx = X_test, s = "lambda.min", type = "class")
-
-loss_cv_lasso1 <- - mean(y_test * log(cv_lasso1_preds) + (1 - y_test) * log(1 - cv_lasso1_preds))
-loss_cv_lasso1
-
-misclass_loss_cv_lasso1 <- mean(cv_lasso1_preds_class != y_test)
-misclass_loss_cv_lasso1
 
 ```
 
 
 ```{r}
-# Generating data
-train1 <- binary_reg_dgp1(100, 1, 1, beta = 1, dirty = 0.1, v_outlier = 0) # My idea of vertical outliers
-train2 <- binary_reg_dgp1(100, 1, 1, beta = 1, dirty = 0.1, v_outlier = 1) # KHF idea of vertical outliers
 
-## Fitting logits (ordinary)
-logit1 <- glm(y ~ X, data = train1, family = "binomial")
-logit2 <- glm(y ~ X, data = train2, family = "binomial")
-
-coef(logit1)
-coef(logit2)
-
-# Checking loss
--logLik(logit1)/nrow(train1) # 0.602
--logLik(logit2)/nrow(train2) # 0.364 (BEST, minimizing risk/loss) -> Hence probably not real outliers
-
-## Plotting logistic fit
-# Generating predicted probabilities along a fine grid
-x_grid <- seq(-100, 100, by = 0.01)
-
-# Getting predictions
-logit1_preds <- predict(logit1, 
-                        newdata = data.frame(X = x_grid),
-                        type = "response")
-logit2_preds <- predict(logit2,
-                        newdata = data.frame(X = x_grid),
-                        type = "response")
-
-# Plotting (Zoomed-out)
-xlim <- c(-80, 80)
-par(mfrow = c(1, 2))
-plot(train1$X, train1$y, 
-     xlim = xlim,
-     main = "My (VW) outliers (NONrobust fit)", 
-     xlab = "X",
-     ylab = "Probability")
-lines(x = x_grid, y = logit1_preds)
-
-plot(train2$X, train2$y, 
-     xlim = xlim,
-     main = "KHF Outliers (NONrobust fit)", 
-     xlab = "X",
-     ylab = "Probability")
-lines(x = x_grid, y = logit2_preds)
-par(mfrow = c(1, 1))
-
-# Plotting (Zoomed-in)
-xlim <- c(-25, 25)
-par(mfrow = c(1, 2))
-plot(train1$X, train1$y,
-     xlim = xlim,
-     main = "My (VW) outliers (NONrobust fit)", 
-     xlab = "X",
-     ylab = "Probability")
-lines(x = x_grid, y = logit1_preds)
-
-plot(train2$X, train2$y, 
-     xlim = xlim,
-     main = "KHF Outliers (NONrobust fit)", 
-     xlab = "X",
-     ylab = "Probability")
-lines(x = x_grid, y = logit2_preds)
-par(mfrow = c(1, 1))
- 
-
-## Trying glmRob
-logit_rob1 <- glmrob(y ~ X, data = train1, family = "binomial", method = "WBY")
-logit_rob2 <- glmrob(y ~ X, data = train2, family = "binomial", method = "WBY")
-
-coef(logit_rob1)
-coef(logit_rob2)
-
-# Predictions
-# These don't want to work for some reason:
-logit_rob1_preds <- predict(logit_rob1, newdata = data.frame(X = x_grid), type = "response")
-logit_rob2_preds <- predict(logit_rob2, newdata = data.frame(X = x_grid), type = "response")
-
-# MANUALLY getting predictions
-logit_rob1_preds <- exp(coef(logit_rob1)[1] + coef(logit_rob1)[2] * x_grid)/(1 + exp(coef(logit_rob1)[1] + coef(logit_rob1)[2] * x_grid))
-plot(x_grid, logit_rob1_preds)
-
-logit_rob2_preds <- exp(coef(logit_rob2)[1] + coef(logit_rob2)[2] * x_grid)/(1 + exp(coef(logit_rob2)[1] + coef(logit_rob2)[2] * x_grid))
-plot(x_grid, logit_rob2_preds)
-
-# Plotting (Robust, Zoomed-out)
-xlim <- c(-80, 80)
-par(mfrow = c(1, 2))
-plot(x = train1$X, 
-     y = train1$y,
-     xlim = xlim,
-     main = "My (VW) outliers (ROBUST)", 
-     xlab = "X",
-     ylab = "Probability")
-lines(x = x_grid, 
-      y = logit_rob1_preds)
-
-plot(x = train2$X, 
-     y = train2$y,
-     xlim = xlim,
-     main = "KHF Outliers (ROBUST)",
-     xlab = "X",
-     ylab = "Probability")
-lines(x = x_grid, 
-      y = logit_rob2_preds)
-par(mfrow = c(1, 1))
-
-# Plotting (Robust, Zoomed-in)
-xlim <- c(-25, 25)
-par(mfrow = c(1, 2))
-plot(x = train1$X, 
-     y = train1$y, 
-     xlim = xlim,
-     main = "My (VW) outliers (ROBUST)", 
-     xlab = "X",
-     ylab = "Probability")
-lines(x = x_grid, 
-      y = logit_rob1_preds)
-
-plot(x = train2$X, 
-     y = train2$y, 
-     xlim = xlim,
-     main = "KHF Outliers (ROBUST)", 
-     xlab = "X",
-     ylab = "Probability")
-lines(x = x_grid, 
-      y = logit_rob2_preds)
-par(mfrow = c(1, 1))
 ```
 
 
@@ -1125,64 +1030,3 @@ for(i in 1:reps){
 temp_y * log(temp_enetlts1_preds) + (1 - temp_y) * log(1 - temp_enetlts1_preds)
 ```
 Ofcourse logit loss on a test set WITH OUTLIERS is very high! because in that case loss would be infinity!!!!!!!
-
-Alternate outlier creation:
-```{r}
-## Adjusting the outlier creations
-
-# Setting parameters    
-n <- 1000
-dirty <- 0.03
-p <- 10 # Including intercept
-beta_vector <- c(1, 2, 3, 0.7, 0.5, 0, 0, 0, 0, 0) # Including intercept!
-length(beta_vector)
-
-# Derive the dirty amount of observations
-n_dirty <- ceiling(n * dirty)
-
-
-## Design matrix (Including intercept)
-# Simple way
-X_matrix <- matrix(nrow = n, ncol = p)
-X_matrix[, 1] <- rep(1, times = n)
-for(j in 2:p){
-  X_matrix[, j] <- rnorm(n = n)
-}
-
-## Another way
-#X_matrix <- matrix(nrow = n, ncol = p)
-#X_matrix[, 1] <- rep(1, times = n)
-#X_matrix[, -1] <- rmvnorm(n = n,mean = rep(0, p-1))
-
-# Linear predictor XB (eta)
-eta_vector <- X_matrix %*% beta_vector
-
-## Generating outcome
-# Expected value (p, sometimes denoted pi)
-prob_vector <- exp(eta_vector)/(1 + exp(eta_vector))
-
-# Actual 0/1 Bernouilli outcomes
-y_vector <- rbinom(n = n,
-                   size = 1,
-                   prob = prob_vector)
-y <- y_vector
-
-## Inserting dirty samples
-# Defining dirty predictors
-dirty_predictors <- c(2, 3, 7, 8)
-
-
-#X_matrix[y_vector == 0, dirty_predictors][1:n_dirty, dirty_predictors] <- X_matrix[1:n_dirty, dirty_predictors][1:n_dirty, dirty_predictors] + rnorm(n = 1, mean = 5)
-X_matrix[y_vector == 0, dirty_predictors][1:n_dirty, ] <- X_matrix[1:n_dirty, dirty_predictors][1:n_dirty, ] + rnorm(n = 1, mean = 5)
-
-
-
-data_X <- as.data.frame(X_matrix[, -1]) # Removing intercept because formula interface will do this automatically
-names(data_X) <- paste0("X", 1:(p - 1))
-X <- data.matrix(data_X)
-
-table(y)
-str(y)
-
-cor(X)
-```
