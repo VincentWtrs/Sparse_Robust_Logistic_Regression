@@ -1,4 +1,4 @@
-logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty = 0, type, dgp = "latent"){
+logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty = 0, type, dgp = "latent", data){
   ### LOGIT SIMULATION FUNCTION
   ## INPUT: beta_vector: a vector of true betas
   # n: the sample size (integer)
@@ -8,6 +8,7 @@ logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty
   # type: type of estimator
   # dgp: latent or bernoulli DGP from binary_reg_dgp
   ## OUPUT: A list of models, one for each run
+  ## SEE BOTTOM FOR KNOWN ISSUES AND WARNINGS
   
   
   set.seed(seed) # Setting seed for reproduceability
@@ -16,6 +17,7 @@ logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty
   test_data <- vector("list", length = runs)
   model_list <- vector("list", length = runs)
   predictions <- vector("list", length = runs)
+  convergence <- vector("logical", length = runs)
   
   for(i in 1:runs){
     training_data[[i]] <- binary_reg_dgp2(n = n,
@@ -58,21 +60,28 @@ logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty
       predictions[[r]] <- predict(model_list[[r]], 
                                   newdata = test_data[[r]],
                                   type = "response")
+      
+      # Convergence
+      convergence[r] <- model_list[[r]]$converged
     }
   }
   
-  # glmrob (robust)
+  # glmrob - Weighted Bianco - Yohai (robust)
   if(type == "glmrob"){
     for(r in 1:runs){
       # Fit model
       model_list[[r]] <- glmrob(formula = formula, 
                                 family = binomial, 
                                 method = "WBY",
+                                control = glmrobBY.control(maxit = 50000),
                                 data = training_data[[r]]) 
       
       # Predict
       predictions[[r]] <- 1/(1 + exp(- predict(model_list[[r]], newdata = test_data[[r]])))
-      # !!Need to re-transform the log-odds scale because just doing type = "response" gives ERROR :(
+      # !!Need to re-transform the log-odds scale to probabilities using inverse logit because just doing type = "response" gives ERROR :(
+      
+      # Convergence
+      convergence <- model_list[[r]]$convergence
     }
   }
   
@@ -80,17 +89,17 @@ logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty
   if(type == "enetLTS"){
     for(r in 1:runs){
       # Prepare data
-      X <- as.matrix(training_data[[r]][, - 1, drop = FALSE]) # Drop = false s.t. they don't become vectors
+      X <- as.matrix(training_data[[r]][, - 1, drop = FALSE]) # Drop = false such that they don't become vectors
       y <- training_data[[r]][, 1]
       
       X_test <- as.matrix(test_data[[r]][, -1, drop = FALSE])
-
+      
       # Fit model
       model_list[[r]] <- enetLTS(xx = X,
                                  yy = y,
                                  family = "binomial",
-                                 hsize = 0.75,
-                                 nfold = 2,
+                                 hsize = 0.75, # .75 is default
+                                 nfold = 5,
                                  intercept = TRUE)
       # intercept = TRUE set because the model matrix doesn't have intercept atm
       
@@ -186,7 +195,7 @@ logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty
                                   type = "response")
     }
   }
-    
+  
   ## Calculating loss (Same for all models)
   # Negative Log-likelihood (Cross entropy) loss 
   loss <- vector("list", length = runs) # Initializing
@@ -214,6 +223,15 @@ logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty
   # Calcualting avg (over-runs-average) missclass loss
   avg_misclass <- mean(run_avg_misclass)
   
+  ## Creating variable that keeps track of all non-converged models
+  # By default it's a vector of 0 (in case nonimplemented)
+  if(all(convergence) == TRUE){
+    nonconvergence <- FALSE # i.e. all fits OK
+  } else if(any(convergence) == TRUE){
+    nonconvergence <- which(convergence == FALSE)
+  } else if(!any(convergence) == TRUE){
+    nonconvergence <- "All fits failed to convergce or convergence check not implemented yet"
+  }
   
   # OUPUT
   return(list(models = model_list, 
@@ -223,5 +241,13 @@ logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty
               loss = loss, 
               avg_loss = avg_loss, 
               misclass = misclass,
-              avg_misclass = avg_misclass))
+              avg_misclass = avg_misclass,
+              nonconvergence = nonconvergence))
 }
+
+### KNOWN WARNINGS: 
+## 1. glmrob error: no problem
+# when fitting the glmrob the error :In (grad.BY %*% xistart) * xistart : Recycling array of length 1 in array-vector arithmetic is deprecated.Use c() or as.vector() instead.
+
+### KNOWN ERRORS: 
+## none
