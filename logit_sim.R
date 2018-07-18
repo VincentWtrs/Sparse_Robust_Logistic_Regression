@@ -1,4 +1,4 @@
-logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty = 0, type, dgp = "latent", data){
+logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty = 0, type, dgp = "latent", glmnet1_alpha = 1){
   ### LOGIT SIMULATION FUNCTION
   ## INPUT: beta_vector: a vector of true betas
   # n: the sample size (integer)
@@ -9,17 +9,20 @@ logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty
   # dgp: latent or bernoulli DGP from binary_reg_dgp
   ## OUPUT: A list of models, one for each run
   ## SEE BOTTOM FOR KNOWN ISSUES AND WARNINGS
-  
-  
-  set.seed(seed) # Setting seed for reproduceability
-  
+
+  # Initializing some variables
   training_data <- vector("list", length = runs)
   test_data <- vector("list", length = runs)
   model_list <- vector("list", length = runs)
   predictions <- vector("list", length = runs)
   convergence <- vector("logical", length = runs)
   
+  # Setting seed
+  set.seed(seed) # Setting seed for reproduceability
+  
+  ## Generating data
   for(i in 1:runs){
+    # Training data
     training_data[[i]] <- binary_reg_dgp2(n = n,
                                           p = p,
                                           p_a = p_a,
@@ -29,7 +32,7 @@ logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty
                                           type = dgp,
                                           v_outlier = 0,
                                           test = FALSE)
-    
+    # Test data (NEEDS TO BE CLEAN)
     test_data[[i]] <- binary_reg_dgp2(n = n,
                                       p = p,
                                       p_a = p_a,
@@ -45,7 +48,7 @@ logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty
   # Making model formula (for glm function)
   #formula <- paste("y", paste0("X", 1:(p - 1), collapse = " + "), sep = " ~ ") # ? why not:
   formula <- paste("y", paste0("X", 1:p, collapse = " + "), sep = " ~ ") 
-  # not including X0 (intercept), does this automatically
+  # not including X0 (intercept), fitting functions do this automatically
   
   # glm (Ordinary logit)
   if(type == "glm"){
@@ -111,8 +114,8 @@ logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty
     }
   }
   
-  # glmnet
-  if(type == "glmnet"){
+  # glmnet1 (alpha manually)
+  if(type == "glmnet1"){
     for(r in 1:runs){
       # Prepare data
       X <- as.matrix(training_data[[r]][, - 1, drop = FALSE]) # Drop = false s.t. they don't become vectors
@@ -124,12 +127,12 @@ logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty
       model_list[[r]] <- cv.glmnet(x = X,
                                    y = y,
                                    family = "binomial",
-                                   alpha = 0.7,
+                                   alpha = glmnet1_alpha,
                                    type.measure = "deviance")
       
       predictions[[r]] <- predict(model_list[[r]],
                                   newx = X_test,
-                                  s = "lambda.1se",
+                                  s = "lambda.min",
                                   type = "response")
     }
   }
@@ -251,3 +254,6 @@ logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty
 
 ### KNOWN ERRORS: 
 ## none
+
+### TO IMPROVE:
+## 1. Allowing glmnet alpha to be set
