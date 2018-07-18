@@ -50,7 +50,8 @@ logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty
     for(r in 1:runs){
       # Fit model
       model_list[[r]] <- glm(formula = formula, 
-                             family = binomial(link = "logit"), 
+                             family = binomial(link = "logit"),
+                             control = glm.control(maxit = 200),
                              data = training_data[[r]])
       
       # Predict
