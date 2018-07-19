@@ -9,6 +9,8 @@ logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty
   # dgp: latent or bernoulli DGP from binary_reg_dgp
   ## OUPUT: A list of models, one for each run
   ## SEE BOTTOM FOR KNOWN ISSUES AND WARNINGS
+  
+  ## REQUIRES: caret, glmnet, ...
 
   # Initializing some variables
   training_data <- vector("list", length = runs)
@@ -114,12 +116,12 @@ logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty
     }
   }
   
-  # glmnet1 (alpha manually)
+  # glmnet1 (alpha manually set by user, default: LASSO (alpha=1))
   if(type == "glmnet1"){
     for(r in 1:runs){
       # Prepare data
-      X <- as.matrix(training_data[[r]][, - 1, drop = FALSE]) # Drop = false s.t. they don't become vectors
-      y <- training_data[[r]][, 1]
+      X <- as.matrix(training_data[[r]][, - 1, drop = FALSE]) # Drop = false s.t. they don't become vectors in LowDim settings
+      y <- training_data[[r]][, 1] # Not an issue for the response vectors
       
       X_test <- as.matrix(test_data[[r]][, -1, drop = FALSE])
       
@@ -139,7 +141,7 @@ logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty
   
   # glmnet2: glmnet with alpha tuning (SLOW!)
   if(type == "glmnet2"){
-    # Initializing some values
+    # Initializing optimal lambda, alpha per run:
     lambda_opt <- numeric(runs)
     alpha_opt <- numeric(runs)
     
@@ -181,7 +183,7 @@ logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty
                             tuneGrid = tuneGrid_glmnet,
                             trControl = trControl_glmnet)
       
-      # Saving optimal tuning params
+      # Saving optimal tuning parameters
       alpha_opt[r] <- glmnet_fit$bestTune$alpha
       lambda_opt[r] <- glmnet_fit$bestTune$lambda
       
@@ -242,8 +244,10 @@ logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty
               test = test_data, 
               preds = predictions, 
               loss = loss, 
-              avg_loss = avg_loss, 
+              avg_loss = avg_loss,
+              run_avg_loss = run_avg_loss,
               misclass = misclass,
+              run_avg_misclass = run_avg_misclass,
               avg_misclass = avg_misclass,
               nonconvergence = nonconvergence))
 }
@@ -253,7 +257,8 @@ logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty
 # when fitting the glmrob the error :In (grad.BY %*% xistart) * xistart : Recycling array of length 1 in array-vector arithmetic is deprecated.Use c() or as.vector() instead.
 
 ### KNOWN ERRORS: 
-## none
+## 1. glmnet2 seems to have some difficulty with the tuning grid?
 
 ### TO IMPROVE:
 ## 1. Allowing glmnet alpha to be set
+## 2. Packages requirements: need to check and complete
