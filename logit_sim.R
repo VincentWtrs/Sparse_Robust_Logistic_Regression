@@ -5,7 +5,7 @@ logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty
   # runs: amount of simulation runs (integer)
   # seed: a seed number for being able to reproduce
   # dirty: proportion of outlying cases (by default no outliers, decimal)
-  # type: type of estimator
+  # type: type of ESTIMATOR! (e.g. glm, enetLTS, ...)
   # dgp: latent or bernoulli DGP from binary_reg_dgp
   ## OUPUT: A list of models, one for each run
   ## SEE BOTTOM FOR KNOWN ISSUES AND WARNINGS
@@ -249,7 +249,9 @@ logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty
               misclass = misclass,
               run_avg_misclass = run_avg_misclass,
               avg_misclass = avg_misclass,
-              nonconvergence = nonconvergence))
+              nonconvergence = nonconvergence,
+              type = type))
+  
 }
 
 ### KNOWN WARNINGS: 
@@ -262,3 +264,4 @@ logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty
 ### TO IMPROVE:
 ## 1. Allowing glmnet alpha to be set
 ## 2. Packages requirements: need to check and complete
+## 3. enetLTS raw versus reweighted
