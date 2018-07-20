@@ -251,7 +251,8 @@ logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty
               avg_misclass = avg_misclass,
               nonconvergence = nonconvergence,
               type = type,
-              runs = runs))
+              runs = runs,
+              beta = beta))
   
 }
 
