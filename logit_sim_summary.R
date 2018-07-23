@@ -16,6 +16,10 @@ logit_sim_summary <- function(logit_sim){
   
   # Initiating output
   output <- vector("list", length = l)
+  
+  output_stats <- vector("list", length = l)
+  output2 <- vector("list", length = l)
+  
 
   ### For each estimator
   for(i in 1:l){
@@ -75,16 +79,43 @@ logit_sim_summary <- function(logit_sim){
                     prop0 = prop0,
                     avg_prop0 = avg_prop0)
     
+    # The pure statistics to be computed
+    stats <- list(precision, fpr, fnr, prop0)
+    stats_names <- c("precision", "fpr", "fnr", "prop0")
+    
     # Putting list per model into big list
     output[[i]] <- summary
-    
-    
+    # For our new output structure
+    output_stats[[i]] <- stats
   }
   # Giving names of estimators to output
   names(output) <- estimator_names
   
   # OUTPUT
-  return(output)
+  #return(output)
+  
+  
+  # For each stat
+  for(i in 1:length(stats)){
+    # Init
+    output2[[i]] <- data.frame(matrix(NA, nrow = runs, ncol = l))
+    names(output2[[i]]) <- estimator_names # Giving estimator names to columns of each df
+    # For each estimator
+    for(j in 1:l){
+      output2[[i]][, j] <- output_stats[[j]][[i]]
+    }
+  }
+  names(output2) <- stats_names
+  
+  stats_avgs <- vector("list", length = length(stats))
+  names(stats_avg) <- estimator_names
+  for(i in 1:length(stats)){
+    stats_avg[[i]] <- colMeans(output2[[i]])
+  }
+  output2_complete <- c(output2, stats_avg)
+  
+  
+  return(output2_complete)
 }
 
 #### Okay think about it. The input is a logit_sim object that actually already contains a lot of things. Now we want an object. Ahaa now it should basically be defined per 
@@ -95,6 +126,11 @@ logit_sim_summary <- function(logit_sim){
 # Rethinking the format, maybe at the end we should actually do the whole thing per topic e.g. precision, fpr, etc. because you want small dataframes for easy plotting
 temp <- logit_sim_summary(sim2)
 
-boxplot(temp$glm1$precision)
+# Now that's very easy to plot!
+boxplot(temp$precision)
+boxplot(temp$fpr)
+boxplot(temp$fnr)
+
+
 
 
