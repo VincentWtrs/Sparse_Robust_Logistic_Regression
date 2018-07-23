@@ -2,16 +2,18 @@
 ## The main idea is that it will summarize over the runs, i.e. per estimator
 ## INPUT:
 # logit_sim: logit_sim object from the logit_sim function, a list containing model information, ...
+# NOTE: don't mix up beta dimensionalities here, this depends on what comes out of the beta
 logit_sim_summary <- function(logit_sim){
   
+  # Extracting/defining quantities from logit_sim input
   l <- length(logit_sim) # Amount of estimators used
-  estimator_names <- names(logit_sim) # Getting estimators used
-  runs <- logit_sim[[1]]$runs # Amount of runs done
-  beta_dim <- length(logit_sim[[1]]$models[[1]]$coef) # beta dim (incl intercept!)
-  beta <- c(1, logit_sim[[1]]$beta) # Adding intercept (fixed at 1 by binary_dgp atm)
+  estimator_names <- names(logit_sim) # Getting names of estimators used
   
-  # Dimensionalities
-  p_a <- sum(beta == 1) # True nonzero
+  runs <- logit_sim[[1]]$runs # Amount of runs done
+  
+  beta <- c(1, logit_sim[[1]]$beta) # Adding intercept (fixed at 1 by binary_dgp atm) # THIS CAN CHANGE!!!
+  beta_dim <- length(beta) # beta dim (INCL. INTERCEPT)
+  p_a <- sum(beta != 0) # True nonzero (Useful)
   p_b <- sum(beta == 0) # True zero
   
   # Initiating output
@@ -48,7 +50,6 @@ logit_sim_summary <- function(logit_sim){
       # Precision (RMSE of betas) DIFFERENT DEF BY TAKING MEAN TO NORMALIZE FOR p
       precision[r] <- sqrt(mean(coefs_current - beta)^2)
                            
-      
       # False Positive Rate (FPR, lower is better)
       fpr[r] <- sum(coefs_current[(p_a + 1):beta_dim] != 0) / p_b
 
@@ -107,8 +108,8 @@ logit_sim_summary <- function(logit_sim){
   }
   names(output2) <- stats_names
   
-  stats_avgs <- vector("list", length = length(stats))
-  names(stats_avg) <- estimator_names
+  stats_avg <- vector("list", length = length(stats))
+  names(stats_avg) <- paste0(stats_names, "_avg")
   for(i in 1:length(stats)){
     stats_avg[[i]] <- colMeans(output2[[i]])
   }
