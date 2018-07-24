@@ -16,7 +16,8 @@ logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty
   training_data <- vector("list", length = runs)
   test_data <- vector("list", length = runs)
   model_list <- vector("list", length = runs)
-  predictions <- vector("list", length = runs)
+  preds_train <- vector("list", length = runs)
+  preds_test
   convergence <- vector("logical", length = runs)
   
   # Setting seed
@@ -61,8 +62,12 @@ logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty
                              control = glm.control(maxit = 200),
                              data = training_data[[r]])
       
-      # Predict
-      predictions[[r]] <- predict(model_list[[r]], 
+      # Predict training set
+      preds_train[[r]] <- predict(model_list[[r]],
+                                  type = "response")
+      
+      # Predict test set
+      preds_test[[r]] <- predict(model_list[[r]], 
                                   newdata = test_data[[r]],
                                   type = "response")
       
@@ -81,8 +86,11 @@ logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty
                                 control = glmrobBY.control(maxit = 50000),
                                 data = training_data[[r]]) 
       
-      # Predict
-      predictions[[r]] <- 1/(1 + exp(- predict(model_list[[r]], newdata = test_data[[r]])))
+      # Predict (training set)
+      preds_train[[r]] <- 1/(1 + exp(- predict(model_list[[r]])))
+      
+      # Predict (test set)
+      preds_test[[r]] <- 1/(1 + exp(- predict(model_list[[r]], newdata = test_data[[r]])))
       # !!Need to re-transform the log-odds scale to probabilities using inverse logit because just doing type = "response" gives ERROR :(
       
       # Convergence
@@ -108,11 +116,16 @@ logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty
                                  intercept = TRUE)
       # intercept = TRUE set because the model matrix doesn't have intercept atm
       
+      # Predict (training set)
+      preds_train <- unname(unlist(predict(model_list[[r]],
+                                           type = "response")))
+      # Need to unname/unlist the thing otherwise it's a mess (default returns a named list)
+      
+      
       # Predict on test sets
-      predictions[[r]] <- unname(unlist(predict(model_list[[r]], 
-                                                newX = X_test,
-                                                type = "response")))
-      # Need to unname/unlist the thing otherwise it's a mess
+      preds_test[[r]] <- unname(unlist(predict(model_list[[r]], 
+                                               newX = X_test,
+                                               type = "response")))
     }
   }
   
@@ -131,8 +144,13 @@ logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty
                                    family = "binomial",
                                    alpha = glmnet1_alpha,
                                    type.measure = "deviance")
+      # Predict (training set)
+      preds_train[[r]] <- predict(model_list[[r]],
+                                  s = "lambda.min",
+                                  type = "response")
       
-      predictions[[r]] <- predict(model_list[[r]],
+      # Predict (test set)
+      preds_test[[r]] <- predict(model_list[[r]],
                                   newx = X_test,
                                   s = "lambda.min",
                                   type = "response")
@@ -194,8 +212,12 @@ logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty
                                 alpha = alpha_opt[r],
                                 lambda_opt = lambda_opt[r])
       
-      # Predictions
-      predictions[[r]] <- predict(model_list[[r]], 
+      # Predict (training set)
+      preds_train[[r]] <- predict(model_list[[r]],
+                                  type = "response")
+      
+      # Predict (test set)
+      preds_test[[r]] <- predict(model_list[[r]], 
                                   newx = X, 
                                   type = "response")
     }
@@ -204,16 +226,25 @@ logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty
   ## Calculating loss (Same for all models)
   # Negative Log-likelihood (Cross entropy) loss 
   loss <- vector("list", length = runs) # Initializing
-  run_avg_loss <- numeric(runs) # Initializing
+  loss_train <- vector("list", length = runs) # Initializing
+  
+  run_avg_loss <- numeric(length = runs) # Initializing
+  run_avg_loss_train <- numeric(length = runs) # Initializing
+  
   
   for(r in 1:runs){ # Over all runs
     y_true <- test_data[[r]][, 1] # Extracting test outcomes
-    preds <- predictions[[r]] # Extracting predictions (probabilities!)
-    loss[[r]] <- logit_loss(y_true = y_true, prob_hat = preds) # Applying logit_loss function per run
+    y_true_train <- train_data[[r]][, 1] # Extracting training outcomes
+    preds <- preds_test[[r]] # Extracting predictions (probabilities!)
+    preds_train <- preds_train[[r]] # Extracting training predictions (probabilities!)
+    loss[[r]] <- logit_loss(y_true = y_true, prob_hat = preds) # Applying logit_loss function per run test results
+    loss_train[[r]] <- logit_loss(y_true = y_true_train, prob_hat = preds_train) # Appluing logit_loss on train results
     run_avg_loss[r] <- unlist(loss[[r]]$avg_loss) # Calculating avg per run
+    run_avg_loss_train[r] <- unlist(loss[[r]]$avg_loss)
   }
   # Calculating avg (over-runs-average) -loglik loss 
-  avg_loss <- mean(run_avg_loss) # Calculating avg over all runs
+  avg_loss <- mean(run_avg_loss) # Calculating avg over all runs (test)
+  avg_loss_train <- mean(run_avg_loss_train) # Calculating avg over all runs (train)
   
   # Classification error loss (same idea as above)
   misclass <- vector("list", lengt = runs)
@@ -267,3 +298,7 @@ logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty
 ## 1. Allowing glmnet alpha to be set
 ## 2. Packages requirements: need to check and complete
 ## 3. enetLTS raw versus reweighted
+## 4. Somekind of match.argument to maybe give some additional arguments to some estimators (e.g. lambda.1.se selection)
+
+### Additions (24/07)
+## 1. Splitting up loss of training set and test set for AIC/BIC purposes
