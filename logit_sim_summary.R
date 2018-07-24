@@ -17,106 +17,112 @@ logit_sim_summary <- function(logit_sim){
   p_b <- sum(beta == 0) # True zero
   
   # Initiating output
-  output <- vector("list", length = l)
+  stats <- vector("list", length = l)
   
-  output_stats <- vector("list", length = l)
-  output2 <- vector("list", length = l)
+  # Defining the names of summary stats to be calculated (excluding their overall averages)
+  stats_names <- c("loss", "misclass", "prec", "tpr", "fpr", "tnr", "fnr", "prop0_train", "prop0_test")
   
-
   ### For each estimator
   for(i in 1:l){
-    ## Initializing some variables
+    ## Initializing
+    # Coefficients
     coefs <- data.frame(matrix(NA, nrow = runs, ncol = beta_dim)) # Each row = run, each column = variable
     names(coefs) <-  c("(Intercept)", paste0("X", 1:(p-1))) # Giving column names
     
-    fpr <- numeric(length = runs)
-    fnr <- numeric(length = runs)
-    precision <- numeric(length = runs)
     tables <- vector("list", length = runs)
-    prop0 <- numeric(length = runs)
     
+    # Initiating statistics
+    loss <- numeric(length = runs) # Avg. Neg. Loglik loss
+    misclass <- numeric(length = runs) # Misclass. rate
+    precision <- numeric(length = runs) # Avg. RMSE on betas
+    tpr <- numeric(length = runs) # True Positive Ratio
+    fpr <- numeric(length = runs) # False Positive Ratio
+    tnr <- numeric(length = runs) # True Negative Ratio
+    fnr <- numeric(length = runs) # False Negative Ratio
+    prop0_train <- numeric(length = runs) # The proportion of 0-outcomes (class imbalance)
+    prop0_test <- numeric(length = runs) # Same, for test set
 
     ## For each run
     for(r in 1:runs){
       
-      # Extracting current (run) model
-      model <- logit_sim[[i]]$models[[r]] # Model i, run r
+      # Extracting model of current run
+      model <- logit_sim[[i]]$models[[r]] # Estimator i, run r
       
       # Extracting Coefficients
-      coefs_current <- coef(model)
+      coefs_current <- coef(model) # For convenience, later on
       coefs[i, ] <- coefs_current
       
-  
-      # Precision (RMSE of betas) DIFFERENT DEF BY TAKING MEAN TO NORMALIZE FOR p
+      # Loss
+      loss[r] <- logit_sim[[i]]$loss[[r]]$avg_loss
+      
+      # Misclass 
+      misclass[r] <- mean(logit_sim[[i]]$misclass[[r]])
+      
+      # Precision (Avg. RMSE of betas) DIFFERENT DEF BY TAKING MEAN TO NORMALIZE FOR p
       precision[r] <- sqrt(mean(coefs_current - beta)^2)
+      
+      # TPR: True Positive Rate (higher is better)
+      tpr[r] <- sum(coefs_current[1:p_a] != 0) / p_a
                            
-      # False Positive Rate (FPR, lower is better)
+      # FPR: False Positive Rate (lower is better)
       fpr[r] <- sum(coefs_current[(p_a + 1):beta_dim] != 0) / p_b
+      
+      # TNR: True Negative Rate (higher is better)
+      tnr[r] <- sum(coefs_current[(p_a + 1):beta_dim] == 0) / p_b
 
-      # False Negative Rate (FNR, lower is better)
+      # FNR: False Negative Rate (lower is better)
       fnr[r] <- sum(coefs_current[1:p_a] == 0) / p_a
       
       # Outcome (y) class frequency
-      tables[[r]] <- table(logit_sim[[i]]$train[[r]]$y) # Freq table
-      prop0[r] <- tables[[r]][1] / sum(tables[[r]]) # Getting proportion of 0
-      # At the end we take summary of it to an idea
+      table_train <- table(logit_sim[[i]]$train[[r]]$y) # For training sets
+      table_test <- table(logit_sim[[i]]$test[[r]]$y) # For test sets
+      
+      prop0_train[r] <- table_train[1] / sum(table_train)
+      prop0_test[r] <- table_test[1] / sum(table_test)
     }
-    # Calculating averages
-    avg_precision <- mean(precision)
-    avg_fpr <- mean(fpr)
-    avg_fnr <- mean(fnr)
-    avg_prop0 <- mean(prop0)
-    
-    # Some other variables
-    freq <- summary(prop0)
     
     # Putting it all in a one list
-    summary <- list(precision = precision,
-                    avg_precision = avg_precision,
-                    fpr = fpr,
-                    avg_fpr = avg_fpr,
-                    fnr = fnr,
-                    avg_fnr = avg_fnr,
-                    prop0 = prop0,
-                    avg_prop0 = avg_prop0)
-    
-    # The pure statistics to be computed
-    stats <- list(precision, fpr, fnr, prop0)
-    stats_names <- c("precision", "fpr", "fnr", "prop0")
-    
-    # Putting list per model into big list
-    output[[i]] <- summary
-    # For our new output structure
-    output_stats[[i]] <- stats
+    stats[[i]]  <- list(loss,
+                        misclass,
+                        precision,
+                        tpr,
+                        fpr,
+                        tnr,
+                        fnr,
+                        prop0_train,
+                        prop0_test)
+    names(stats[[i]]) <- stats_names
   }
-  # Giving names of estimators to output
-  names(output) <- estimator_names
+  # Giving appropriate names to stats
+  names(stats) <- estimator_names 
+  # Now we have a list per estimator, for each estimator a numeric giving the stats
   
-  # OUTPUT
-  #return(output)
+  # We'd like to get the output: list of dfs, each stats 2 df (one for stat, one for avg) with l columns (one for each estim.)
   
+  ## OUTPUT
+  output <- vector("list", length = length(stats_names))
+  stats_avg <- vector("list", length = length(stats_names))
+  names(stats_avg) <- paste0(stats_names, "_avg")
   
-  # For each stat
-  for(i in 1:length(stats)){
-    # Init
-    output2[[i]] <- data.frame(matrix(NA, nrow = runs, ncol = l))
-    names(output2[[i]]) <- estimator_names # Giving estimator names to columns of each df
+  # For each different stat
+  for(i in 1:length(stats_names)){
+    
+    # Initializing a df with row for each run and col for each estimator
+    output[[i]] <- data.frame(matrix(NA, nrow = runs, ncol = l))
+    names(output[[i]]) <- estimator_names
+    names(output) <- stats_names
+    
     # For each estimator
     for(j in 1:l){
-      output2[[i]][, j] <- output_stats[[j]][[i]]
+      output[[i]][, j] <- stats[[j]][[i]] # Col j (estim j) <- stats of estim j, stats i
+      
+      # Taking averages of the dfs we just have made
+      stats_avg[[i]] <- colMeans(output[[i]])
+      
     }
   }
-  names(output2) <- stats_names
-  
-  stats_avg <- vector("list", length = length(stats))
-  names(stats_avg) <- paste0(stats_names, "_avg")
-  for(i in 1:length(stats)){
-    stats_avg[[i]] <- colMeans(output2[[i]])
-  }
-  output2_complete <- c(output2, stats_avg)
-  
-  
-  return(output2_complete)
+  output <- c(output, stats_avg)
+  return(output)
 }
 
 #### Okay think about it. The input is a logit_sim object that actually already contains a lot of things. Now we want an object. Ahaa now it should basically be defined per 
@@ -125,12 +131,8 @@ logit_sim_summary <- function(logit_sim){
 
 
 # Rethinking the format, maybe at the end we should actually do the whole thing per topic e.g. precision, fpr, etc. because you want small dataframes for easy plotting
-temp <- logit_sim_summary(sim2)
+logit_sim_summary(sim2)
 
-# Now that's very easy to plot!
-boxplot(temp$precision)
-boxplot(temp$fpr)
-boxplot(temp$fnr)
 
 
 
