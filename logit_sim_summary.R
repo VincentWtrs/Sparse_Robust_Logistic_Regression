@@ -124,16 +124,3 @@ logit_sim_summary <- function(logit_sim){
   output <- c(output, stats_avg)
   return(output)
 }
-
-#### Okay think about it. The input is a logit_sim object that actually already contains a lot of things. Now we want an object. Ahaa now it should basically be defined per 
-# but it should actually be able to work easily with an object with multiple fits together. So it is a list with: # levels per estimator 
-# then for each estimator: the summary and the plots. There should be a plotting indicator and also it should be easy to plot the figures with the data later on.
-
-
-# Rethinking the format, maybe at the end we should actually do the whole thing per topic e.g. precision, fpr, etc. because you want small dataframes for easy plotting
-logit_sim_summary(sim2)
-
-
-
-
-
