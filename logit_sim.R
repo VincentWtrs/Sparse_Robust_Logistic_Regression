@@ -17,7 +17,7 @@ logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty
   test_data <- vector("list", length = runs)
   model_list <- vector("list", length = runs)
   preds_train <- vector("list", length = runs)
-  preds_test
+  preds_test <- vector("list", length = runs)
   convergence <- vector("logical", length = runs)
   
   # Setting seed
@@ -234,11 +234,11 @@ logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty
   
   for(r in 1:runs){ # Over all runs
     y_true <- test_data[[r]][, 1] # Extracting test outcomes
-    y_true_train <- train_data[[r]][, 1] # Extracting training outcomes
+    y_true_train <- training_data[[r]][, 1] # Extracting training outcomes
     preds <- preds_test[[r]] # Extracting predictions (probabilities!)
-    preds_train <- preds_train[[r]] # Extracting training predictions (probabilities!)
+    preds_tr <- preds_train[[r]] # Extracting training predictions (probabilities!)
     loss[[r]] <- logit_loss(y_true = y_true, prob_hat = preds) # Applying logit_loss function per run test results
-    loss_train[[r]] <- logit_loss(y_true = y_true_train, prob_hat = preds_train) # Appluing logit_loss on train results
+    loss_train[[r]] <- logit_loss(y_true = y_true_train, prob_hat = preds_tr) # Appluing logit_loss on train results
     run_avg_loss[r] <- unlist(loss[[r]]$avg_loss) # Calculating avg per run
     run_avg_loss_train[r] <- unlist(loss[[r]]$avg_loss)
   }
@@ -251,7 +251,7 @@ logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty
   run_avg_misclass <- numeric(runs)
   for(r in 1:runs){
     y_true <- test_data[[r]][, 1]
-    preds_class <- ifelse(predictions[[r]] > 0.5, yes = 1, no = 0)
+    preds_class <- ifelse(preds_test[[r]] > 0.5, yes = 1, no = 0)
     misclass[[r]] <- abs(y_true - preds_class)
     run_avg_misclass[r] <- mean(misclass[[r]])
   }
@@ -273,10 +273,14 @@ logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty
   return(list(models = model_list, 
               train = training_data, 
               test = test_data, 
-              preds = predictions, 
-              loss = loss, 
+              preds = preds_test,
+              preds_train = preds_train,
+              loss = loss,
+              loss_train = loss_train,
               avg_loss = avg_loss,
+              avg_loss_train = avg_loss_train,
               run_avg_loss = run_avg_loss,
+              run_avg_loss_train = run_avg_loss_train,
               misclass = misclass,
               run_avg_misclass = run_avg_misclass,
               avg_misclass = avg_misclass,
