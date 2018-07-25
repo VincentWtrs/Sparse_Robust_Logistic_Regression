@@ -64,6 +64,7 @@ logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty
       
       # Predict training set
       preds_train[[r]] <- predict(model_list[[r]],
+                                  newdata = training_data[[r]],
                                   type = "response")
       
       # Predict test set
@@ -87,7 +88,7 @@ logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty
                                 data = training_data[[r]]) 
       
       # Predict (training set)
-      preds_train[[r]] <- 1/(1 + exp(- predict(model_list[[r]])))
+      preds_train[[r]] <- 1/(1 + exp(- predict(model_list[[r]], newdata = training_data[[r]])))
       
       # Predict (test set)
       preds_test[[r]] <- 1/(1 + exp(- predict(model_list[[r]], newdata = test_data[[r]])))
@@ -118,14 +119,17 @@ logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty
       
       # Predict (training set)
       preds_train <- unname(unlist(predict(model_list[[r]],
-                                           type = "response")))
+                                           newX = X,
+                                           type = "response",
+                                           vers = "reweighted")))
       # Need to unname/unlist the thing otherwise it's a mess (default returns a named list)
       
       
       # Predict on test sets
       preds_test[[r]] <- unname(unlist(predict(model_list[[r]], 
                                                newX = X_test,
-                                               type = "response")))
+                                               type = "response",
+                                               vers = "reweighted")))
     }
   }
   
@@ -146,6 +150,7 @@ logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty
                                    type.measure = "deviance")
       # Predict (training set)
       preds_train[[r]] <- predict(model_list[[r]],
+                                  newx = X,
                                   s = "lambda.min",
                                   type = "response")
       
@@ -206,7 +211,7 @@ logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty
       lambda_opt[r] <- glmnet_fit$bestTune$lambda
       
       # Fitting with optimal settings
-      model_list[[r]] <- glmnet(x = x,
+      model_list[[r]] <- glmnet(x = X, # Was small x? wrong?
                                 y = y,
                                 family = "binomial",
                                 alpha = alpha_opt[r],
@@ -214,6 +219,7 @@ logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty
       
       # Predict (training set)
       preds_train[[r]] <- predict(model_list[[r]],
+                                  newx = X,
                                   type = "response")
       
       # Predict (test set)
