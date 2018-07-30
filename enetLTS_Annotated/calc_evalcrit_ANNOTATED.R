@@ -109,7 +109,7 @@ calc_evalCrit <- function(rowind, combis_ind, alphas, lambdas, index, xx, yy, nf
                            ytrain, 
                            family, 
                            alpha = alpha, 
-                           lambda = lambda/hpen, # The lambda is scaled! (Probably different definition ?) #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+                           #lambda = lambda/hpen, # The lambda is scaled! (Probably different definition ?) #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
                            # BETTER WOULD BE TO NOT SPECIFY ANY LAMBDA AND THEN GET THE COEFFICIENTS WITH THE LAMBDA WANTED
                            standardize = FALSE, 
                            intercept = FALSE)
@@ -130,15 +130,20 @@ calc_evalCrit <- function(rowind, combis_ind, alphas, lambdas, index, xx, yy, nf
         if (family == "binomial") {
           # Loss is negative loglikelihood in form of - y*eta + log(1 + exp(eta))
           # NOTE: trainmod$beta is a "dgCmatrix" object of size nobs (amount of obs) x nvars (amount of predictors)
-          loss0[folds0$which == f] <- -(ytest0 * xtest0 %*% matrix(trainmod$beta)) + log(1 + exp(xtest0 %*% matrix(trainmod$beta)))
-          loss1[folds1$which == f] <- -(ytest1 * xtest1 %*% matrix(trainmod$beta)) + log(1 + exp(xtest1 %*% matrix(trainmod$beta)))
+          #loss0[folds0$which == f] <- -(ytest0 * xtest0 %*% matrix(trainmod$beta)) + log(1 + exp(xtest0 %*% matrix(trainmod$beta))) # ORIGINAL
+          loss0[folds0$which == f] <- -(ytest0 * xtest0 %*% matrix(coef(trainmod, s = lambda/h))) + log(1 + exp(xtest0 %*% matrix(coef(trainmod, s = lambda/h)))) # UPDATE
+          #loss1[folds1$which == f] <- -(ytest1 * xtest1 %*% matrix(trainmod$beta)) + log(1 + exp(xtest1 %*% matrix(trainmod$beta))) # ORIGINAL
+          loss1[folds1$which == f] <- -(ytest1 * xtest1 %*% matrix(coef(trainmod, s = lambda/h))) + log(1 + exp(xtest1 %*% matrix(coef(trainmod, s = lambda/h)))) # UPDATE
+          
           # NOTE2: because the glmnet model is fitted with a single alpha-lambda combination, the dgCmatrix simplifies to an ordinary one
         }
         
         # Gaussian Loss:
         else if (family == "gaussian") 
           # Loss is also negative loglik = squared loss y - y_hat (y_hat = X*beta_hat)
-          loss[folds$which == f] <- ytest - xtest %*% matrix(trainmod$beta)
+          #loss[folds$which == f] <- ytest - xtest %*% matrix(trainmod$beta) # ORIGINAL
+          loss[folds$which == f] <- ytest - xtest %*% matrix(coef(traindmod, s = lamda/h)) # UPDATED
+          
       }
     } # END OF FOLD LEVEL
     
