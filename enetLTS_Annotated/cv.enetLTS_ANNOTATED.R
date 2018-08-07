@@ -1,14 +1,26 @@
-
-# IN THIS FILE I WILL ANNOTATE THE enetLTS FUNCTION:
+### IN THIS FILE I WILL ANNOTATE THE enetLTS FUNCTION ###
 
 # This function handles the cross validation scheme for the enetLTS fitting procedure:
 cv.enetLTS_ANNOTATED <- function (index = NULL, xx, yy, family, h, alphas, lambdas, nfold, 
                         repl, ncores, plot = TRUE) 
 {
+  
+  ## INPUTS:
+  # index: ?
+  # xx: ?
+  # yy: ?
+  # family: the family argument
+  # h
+  # alphas:
+  # lambdas:
+  
+  ## CALLED BY
+  
+  
   ## Setting all loss functions to NULL:
   # MNLL = Mean Negative Loglikelihood
-  # TMNLL ?
-  # RTMSPE = 
+  # TMNLL = Trimmed (?) Mean Negative Loglikelihood
+  # RTMSPE = Trimmed (?) Mean Squared Prediction Error
   # RMSPE = Root Mean Squared Prediction Error
   MNLL <- TMNLL <- RTMSPE <- RMSPE <- NULL
   
@@ -26,35 +38,45 @@ cv.enetLTS_ANNOTATED <- function (index = NULL, xx, yy, family, h, alphas, lambd
   if (missing(lambdas)) 
     stop("provide an lambdas sequence")
   
-  ## Initiating evalCrit matrix over lambdas/alphas
+  ## Initiating evalCrit-object matrix over lambdas/alphas
   # Filling with NA; row = lambda values / col = alpha values
   evalCrit <- matrix(NA, nrow = length(lambdas), ncol = length(alphas))
-  
-  # Giving appropriate headers (i.e. each row and column has its OWN name!)
-  dimnames(evalCrit) <- list(paste("lambdas", lambdas), paste("alpha", alphas))
-  
-  # Making grid which has POSITIONS of the values e.g. 1-1, 2-1, 3-1, ... 1-2, 2-2, ...
+  dimnames(evalCrit) <- list(paste("lambdas", lambdas), paste("alpha", alphas)) # dimnames (colnames/rownames)
+
+  # Making grid which has POSITIONS of the values i.e. 1-1, 2-1, 3-1, ..., 1-2, 2-2, ...
   combis_ind <- expand.grid(1:length(lambdas), 1:length(alphas)) # Somekind of table of indices!
+  # So the object combis_ind is only dependent on the amount of alpha and lambda values not on the actual values itself
   
-  # Creating sequence of 1, 2, ..., AMOUNT OF COMBINATIONS
+  # Creating sequence of 1, 2, ..., -> AMOUNT OF COMBINATIONS
   indcombi <- 1:nrow(combis_ind)
   
-  # calc_evalCrit() function (I HAVE SPLIT THIS OFF!!!!)
+  # calc_evalCrit() function (This was defined here but I SPLIT IT OFF!)
   
-  # Multicore applying over the calc_evalCrit
-  temp_result <- mclapply(1:nrow(combis_ind), FUN = calc_evalCrit, 
-                          combis_ind = combis_ind, alphas = alphas, lambdas = lambdas, 
-                          index = index, xx = xx, yy = yy, nfold = nfold, repl = repl, 
-                          mc.cores = ncores, mc.allow.recursive = FALSE)
-  temp_result2 <- matrix(unlist(temp_result), ncol = repl + 2, byrow = TRUE)
-  for (k in 1:nrow(temp_result2)) {
-    i <- temp_result2[k, 1]
-    j <- temp_result2[k, 2]
-    evalCrit[i, j] <- mean(temp_result2[k, 3:(repl + 2)])
+  # Multicore applying calc_evalCrit() over ROW NUMBER of combis_ind
+  temp_result <- mclapply(1:nrow(combis_ind), FUN = calc_evalCrit, # calc_evalCrit now defined in separate .R file
+                          combis_ind = combis_ind, 
+                          alphas = alphas, 
+                          lambdas = lambdas, 
+                          index = index, 
+                          xx = xx, 
+                          yy = yy, 
+                          nfold = nfold, 
+                          repl = repl, 
+                          mc.cores = ncores, 
+                          mc.allow.recursive = FALSE)
+  # So at the end of mclapply we have passed all alpha-lambda combinations but at each individual loop of the mclapply only one single
+  # row (i.e. one single alpha-lambda) combination is passed through! However temp_Reults
+  temp_result2 <- matrix(unlist(temp_result), 
+                         ncol = repl + 2, # +2 Because in col 1 and 2 we save the lambda and alpha values
+                         byrow = TRUE)
+  for (k in 1:nrow(temp_result2)) { # What are the rows what are the columns?
+    i <- temp_result2[k, 1] # ??
+    j <- temp_result2[k, 2] # ??
+    evalCrit[i, j] <- mean(temp_result2[k, 3:(repl + 2)]) # ??
   }
   
-  optind <- which(evalCrit == min(evalCrit, na.rm = TRUE), 
-                  arr.ind = TRUE)[1, ]
+  ## EXTRACTING OPTIMAL SOLUTION (wrt. tuning params)
+  optind <- which(evalCrit == min(evalCrit, na.rm = TRUE), arr.ind = TRUE)[1, ]
   minevalCrit <- evalCrit[optind[1], optind[2]]
   indexbest <- index[, optind[1], optind[2]]
   alphas <- round(alphas, 4)
@@ -145,8 +167,8 @@ cv.enetLTS_ANNOTATED <- function (index = NULL, xx, yy, family, h, alphas, lambd
       ylab("alpha")
     
     grid.newpage()
-    pushViewport(viewport(layout = grid.layout(1, 1)))
-    print(mspeplot, vp = viewport(layout.pos.row = 1, layout.pos.col = 1))
+    pushViewport(viewport(layout = grid:::grid.layout(1, 1)))
+    print(mspeplot, vp = grid:::viewport(layout.pos.row = 1, layout.pos.col = 1))
   }
   
   # Return values

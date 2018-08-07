@@ -1,5 +1,5 @@
 cv.enetLTS_UPDATE <- function (index = NULL, xx, yy, family, h, alphas, lambdas, nfold, 
-          repl, ncores, plot = TRUE) 
+          repl, ncores, plot = TRUE, ic_type = NULL) 
 {
   MNLL <- TMNLL <- RTMSPE <- RMSPE <- NULL
   n <- nrow(xx)
@@ -17,171 +17,28 @@ cv.enetLTS_UPDATE <- function (index = NULL, xx, yy, family, h, alphas, lambdas,
   combis_ind <- expand.grid(1:length(lambdas), 1:length(alphas))
   indcombi <- 1:nrow(combis_ind)
   
-  # CACL_EVALCRIT
-  calc_evalCrit <- function(rowind, combis_ind, alphas, lambdas, 
-                            index, xx, yy, nfold, repl) {
-    i <- combis_ind[rowind, 1]
-    j <- combis_ind[rowind, 2]
-    lambda <- lambdas[i]
-    alpha <- alphas[j]
-    print(paste("cross-validating for WEJOOOOWABUDABI alpha: ", alpha, " and lambda :", 
-                lambda), sep = "")
-    if (is.null(index)) {
-      x <- xx
-      y <- yy
-    }
-    else {
-      x <- xx[index[, i, j], ]
-      y <- yy[index[, i, j]]
-    }
-    evalCritl <- rep(NA, repl)
-    for (l in 1:repl) {
-      
-      ######### NEW: if(nfold > 1): Keep old functionality
-      if(nfold > 1){ # BEGIN if(nfold > 1)
-    
-      
-      if (family == "binomial") {
-        folds0 <- cvFolds(length(y[y == 0]), K = nfold, 
-                          R = 1, type = "random")
-        folds1 <- cvFolds(length(y[y == 1]), K = nfold, 
-                          R = 1, type = "random")
-        loss0 <- rep(NA, sum(y == 0))
-        loss1 <- rep(NA, sum(y == 1))
-      }
-      else if (family == "gaussian") {
-        folds <- cvFolds(length(y), K = nfold, R = 1, 
-                         type = "random")
-        loss <- rep(NA, nrow(x))
-      }
-      for (f in 1:nfold) {
-        if (family == "binomial") {
-          xtrain0 <- x[y == 0, ][folds0$subsets[folds0$which != 
-                                                  f, 1], ]
-          ytrain0 <- y[y == 0][folds0$subsets[folds0$which != 
-                                                f, 1]]
-          xtest0 <- x[y == 0, ][folds0$subsets[folds0$which == 
-                                                 f, 1], ]
-          ytest0 <- y[y == 0][folds0$subsets[folds0$which == 
-                                               f, 1]]
-          xtrain1 <- x[y == 1, ][folds1$subsets[folds1$which != 
-                                                  f, 1], ]
-          ytrain1 <- y[y == 1][folds1$subsets[folds1$which != 
-                                                f, 1]]
-          xtest1 <- x[y == 1, ][folds1$subsets[folds1$which == 
-                                                 f, 1], ]
-          ytest1 <- y[y == 1][folds1$subsets[folds1$which == 
-                                               f, 1]]
-          xtrain <- rbind(xtrain0, xtrain1)
-          ytrain <- c(ytrain0, ytrain1)
-          xtest <- rbind(xtest0, xtest1)
-          ytest <- c(ytest0, ytest1)
-        }
-        else if (family == "gaussian") {
-          xtrain <- x[folds$subsets[folds$which != f, 
-                                    1], ]
-          ytrain <- y[folds$subsets[folds$which != f, 
-                                    1]]
-          xtest <- x[folds$subsets[folds$which == f, 
-                                   1], ]
-          ytest <- y[folds$subsets[folds$which == f, 
-                                   1]]
-        }
-        res <- tryCatch({
-          hpen <- length(ytrain)
-          trainmod <- glmnet(xtrain, ytrain, family, 
-                             alpha = alpha, standardize = FALSE, 
-                             intercept = FALSE)
-        }, error = function(err) {
-          error <- TRUE
-          return(error)
-        })
-        if (is.logical(res)) {
-          print(paste("CV broke off for alpha=", alpha, 
-                      "and lambda=", lambda))
-        }
-        else {
-          trainmod <- res
-          if (family == "binomial") {
-            # CHANGED: (seems quite slow)
-            loss0[folds0$which == f] <- -(ytest0 * xtest0 %*% 
-                                            matrix(coef(trainmod, s = lambda/h))[-1, ]) + log(1 + exp(xtest0 %*% 
-                                                                                   matrix(coef(trainmod, s = lambda/h))[-1, ]))
-            loss1[folds1$which == f] <- -(ytest1 * xtest1 %*% 
-                                            matrix(coef(trainmod, s = lambda/h))[-1, ]) + log(1 + exp(xtest1 %*% 
-                                                                                   matrix(coef(trainmod, s = lambda/h))[-1, ]))
-          }
-          else if (family == "gaussian") 
-            loss[folds$which == f] <- ytest - xtest %*% 
-              matrix(trainmod$beta)
-        }
-      }
-      if (family == "binomial") {
-        loss <- c(loss0, loss1)
-        evalCritl[l] <- mean(loss, na.rm = TRUE)
-      }
-      else if (family == "gaussian") {
-        evalCritl[l] <- sqrt(mean(loss^2))
-      }
-    } # END OF if(nfold > 1)
-      
-      ########## NEW: if(nfold = 1):
-      if(nfold == 1){ # BEGINNING if(nfold == 1)
-        loss <- rep(NA, nrow(x))
-        xtrain <- x
-        ytrain <- y
-        
-        # Fitting (within an error catching structure)
-        res <- tryCatch({
-          hpen <- length(ytrain)
-          trainmod <- glmnet(xtrain, 
-                             ytrain, 
-                             family, 
-                             alpha = alpha, 
-                             lambda = lambda,
-                             standardize = FALSE, 
-                             intercept = FALSE)
-        }, error = function(err) {
-          error <- TRUE
-          return(error)
-        })
-        if (is.logical(res)) {
-          print(paste("Fitting broke off for alpha=", alpha, 
-                      "and lambda=", lambda))
-        }
-        else {
-          trainmod <- res
-          # Binomial Case
-          if (family == "binomial") {
-            # CHANGED: (seems quite slow)
-            loss <- -(ytrain * xtrain %*% matrix(trainmod$beta)) + log(1 + exp(xtrain %*% matrix(trainmod$beta)))
-          }
-          
-          # Gaussian Case
-          else if (family == "gaussian") 
-            loss <- ytrain - xtrain %*% matrix(trainmod$beta)
-        }
-      
-      # Calculating evaluation criteria
-      if (family == "binomial") {
-        evalCritl[l] <- mean(loss, na.rm = TRUE)
-      }
-      else if (family == "gaussian") {
-        evalCritl[l] <- sqrt(mean(loss^2))
-      }
-      
-    } # END OF if(nfold == 1)
-    
-      
-    } # END OF REPL. LOOP
-    return(list(lambda_ind = i, alpha_ind = j, evalCritl = evalCritl))
-  }
-  temp_result <- parallel:::mclapply(1:nrow(combis_ind), FUN = calc_evalCrit, 
-                          combis_ind = combis_ind, alphas = alphas, lambdas = lambdas, 
-                          index = index, xx = xx, yy = yy, nfold = nfold, repl = repl, 
-                          mc.cores = ncores, mc.allow.recursive = FALSE)
-  temp_result2 <- matrix(unlist(temp_result), ncol = repl + 
-                           2, byrow = TRUE)
+  ## REMOVED: DEFINITION OF calc_evalCrit(), THIS HAS BEEN SPLIT OFF TO SEPARATE FILE
+  
+  # Running for all combinations of alpha, lambda
+  ### NEW: UPDATED TO CALL calc_evalcrit_UPDATE instead of the original one ALSO: added argument family = family and ic_type to be passed on as well
+  temp_result <- parallel:::mclapply(1:nrow(combis_ind), FUN = calc_evalCrit_UPDATE, 
+                          combis_ind = combis_ind, 
+                          alphas = alphas, 
+                          lambdas = lambdas, 
+                          index = index, 
+                          xx = xx, 
+                          yy = yy, 
+                          nfold = nfold, 
+                          repl = repl, 
+                          family = family, # NEW 
+                          ic_type = ic_type, # NEW
+                          mc.cores = ncores, 
+                          mc.allow.recursive = FALSE)
+  # Restructuring output
+  temp_result2 <- matrix(unlist(temp_result), 
+                         ncol = repl + 2, # + 2
+                         byrow = TRUE)
+  
   for (k in 1:nrow(temp_result2)) {
     i <- temp_result2[k, 1]
     j <- temp_result2[k, 2]
@@ -191,10 +48,12 @@ cv.enetLTS_UPDATE <- function (index = NULL, xx, yy, family, h, alphas, lambdas,
                   arr.ind = TRUE)[1, ]
   minevalCrit <- evalCrit[optind[1], optind[2]]
   indexbest <- index[, optind[1], optind[2]]
-  alphas <- round(alphas, 4)
-  alpha <- alphas[optind[2]]
-  lambdas <- round(lambdas, 4)
-  lambda <- lambdas[optind[1]]
+  alphas <- round(alphas, 10)
+  alpha <- alphas[optind[2]] 
+  lambdas <- round(lambdas, 10) # NEW: less rounding
+  lambda <- lambdas[optind[1]] # NEW: less rounding
+  
+  ### PLOTTING (if plot = TRUE)
   if (plot == TRUE) {
     print(paste("optimal model: lambda =", lambda, "alpha =", 
                 alpha))
@@ -204,7 +63,7 @@ cv.enetLTS_UPDATE <- function (index = NULL, xx, yy, family, h, alphas, lambdas,
     ggmspe <- evalCrit
     rownames(ggmspe) <- lambdas
     colnames(ggmspe) <- alphas
-    ggmspe <- melt(ggmspe)
+    ggmspe <- reshape:::melt(ggmspe) # NEW: Trying to force getting it from here
     if (is.null(index)) {
       if (family == "binomial") {
         names(ggmspe) <- c("lambda", "alpha", "TMNLL")
@@ -242,9 +101,9 @@ cv.enetLTS_UPDATE <- function (index = NULL, xx, yy, family, h, alphas, lambdas,
       }
     }
     mspeplot <- mspeplot + xlab("lambda") + ylab("alpha")
-    grid.newpage()
-    pushViewport(viewport(layout = grid.layout(1, 1)))
-    print(mspeplot, vp = viewport(layout.pos.row = 1, layout.pos.col = 1))
+    grid:::grid.newpage() # NEW: added grid::: to force it getting the right package when changing the function in namespace
+    grid:::pushViewport(grid:::viewport(layout = grid:::grid.layout(1, 1)))
+    print(mspeplot, vp = grid:::viewport(layout.pos.row = 1, layout.pos.col = 1))
   }
   return(list(evalCrit = evalCrit, minevalCrit = minevalCrit, 
               indexbest = indexbest, lambdaopt = lambda, alphaopt = alpha))

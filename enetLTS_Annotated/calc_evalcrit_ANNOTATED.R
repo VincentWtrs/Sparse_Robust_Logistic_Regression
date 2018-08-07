@@ -10,10 +10,11 @@ calc_evalCrit <- function(rowind, combis_ind, alphas, lambdas, index, xx, yy, nf
   ## SO IF I'M RIGHT, THIS IS CALLED FOR A SINGLE ALPHA/LAMBDA VALUE
   
   # Extracting indices out of the expand.grid
-  i <- combis_ind[rowind, 1] # Column 1: lambda
-  j <- combis_ind[rowind, 2] # Column 2: alpha
+  i <- combis_ind[rowind, 1] # Column 1: lambda INDEX
+  j <- combis_ind[rowind, 2] # Column 2: alpha INDEX
+  # So one would start at 1-1
   
-  # Extracting the lambda-alpha combination based on the i,j from above
+  # Extracting the lambda-alpha VALUE combination based on the i,j from above
   lambda <- lambdas[i] # Looking up in lambdas vector, position from earlier
   alpha <- alphas[j] # Same, but for alpha
   
@@ -28,8 +29,8 @@ calc_evalCrit <- function(rowind, combis_ind, alphas, lambdas, index, xx, yy, nf
   }
   # Indeed, indexes (amount = h) should be received from warmCstep(), i.e. getting the indices in set H of size h (?)
   else {
-    x <- xx[index[, i, j], ] # WEIRD SUBSETTING MUST BE SOMEKIND OF 3 level strucure! [x, y, z]?
-    y <- yy[index[, i, j]]
+    x <- xx[index[, i, j], ] # Gives one dataset of size h (X)
+    y <- yy[index[, i, j]]  # Same (y)
   }
   
   
@@ -130,11 +131,9 @@ calc_evalCrit <- function(rowind, combis_ind, alphas, lambdas, index, xx, yy, nf
         if (family == "binomial") {
           # Loss is negative loglikelihood in form of - y*eta + log(1 + exp(eta))
           # NOTE: trainmod$beta is a "dgCmatrix" object of size nobs (amount of obs) x nvars (amount of predictors)
-          #loss0[folds0$which == f] <- -(ytest0 * xtest0 %*% matrix(trainmod$beta)) + log(1 + exp(xtest0 %*% matrix(trainmod$beta))) # ORIGINAL
-          loss0[folds0$which == f] <- -(ytest0 * xtest0 %*% matrix(coef(trainmod, s = lambda/h))) + log(1 + exp(xtest0 %*% matrix(coef(trainmod, s = lambda/h)))) # UPDATE
-          #loss1[folds1$which == f] <- -(ytest1 * xtest1 %*% matrix(trainmod$beta)) + log(1 + exp(xtest1 %*% matrix(trainmod$beta))) # ORIGINAL
-          loss1[folds1$which == f] <- -(ytest1 * xtest1 %*% matrix(coef(trainmod, s = lambda/h))) + log(1 + exp(xtest1 %*% matrix(coef(trainmod, s = lambda/h)))) # UPDATE
-          
+          loss0[folds0$which == f] <- -(ytest0 * xtest0 %*% matrix(trainmod$beta)) + log(1 + exp(xtest0 %*% matrix(trainmod$beta))) # ORIGINAL
+          loss1[folds1$which == f] <- -(ytest1 * xtest1 %*% matrix(trainmod$beta)) + log(1 + exp(xtest1 %*% matrix(trainmod$beta))) # ORIGINAL
+
           # NOTE2: because the glmnet model is fitted with a single alpha-lambda combination, the dgCmatrix simplifies to an ordinary one
         }
         

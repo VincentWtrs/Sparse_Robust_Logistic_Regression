@@ -4,22 +4,26 @@ enetLTS <- function (xx, yy, family = c("gaussian", "binomial"), alphas,
                      repl = 5, para = TRUE, ncores = 1, del = 0.0125, tol = -1e+06, 
                      scal = TRUE, type = c("response", "class")) 
 {
+  ## INPUT
+  # hsize is the procentual value of the sample to keep (floored)
+  
+  ### PREPARATION AND ERROR HANDLING
+  ## Arguments handling
   matchedCall <- match.call() # match.call great if there are a lot of optional arguments
   matchedCall[[1]] <- as.name("enetLTS")
   
-  # Assigning the arguments to internal variables (?)
   family <- match.arg(family)
   type <- match.arg(type)
-  xx <- addColnames(as.matrix(xx))  #?
-  nc = dim(yy) #?
-  if (is.null(nc)) {
+  xx <- addColnames(as.matrix(xx)) # This probably adds colnames (internal, unknown function)
+  nc = dim(yy) # Dimension of outcome (yy)
+  if (is.null(nc)) { # If yy is vector, dim() will return NULL, then yy will be forced to matrix
     yy <- as.matrix(yy)
   }
-  n <- nrow(xx)
-  p <- ncol(xx)
-  h <- floor((n + 1) * hsize)
+  n <- nrow(xx) # Amount of columns
+  p <- ncol(xx) # 
+  h <- floor((n + 1) * hsize) # h is the sample size (TO DO: why n + 1?)
   
-  # Some error throwing
+  ## Some error throwing
   if (repl <= 0) 
     stop("repl has to be a positive number")
   if (nCsteps <= 0) 
@@ -36,82 +40,109 @@ enetLTS <- function (xx, yy, family = c("gaussian", "binomial"), alphas,
   }
   else ncores <- as.integer(ncores)
   
-  # Binomial-specific preparation:
+  ## Binomial response specific preparation:
   if (family == "binomial") {
-    rnames <- rownames(yy)
-    rownames(yy) <- 1:nrow(yy)
-    y_actual = as.factor(yy)
-    ntab = table(y_actual)
-    minclass = min(ntab) # why minclass?
-    classnames = names(ntab)
+    rnames <- rownames(yy) # Saving rownames (why ?)
+    rownames(yy) <- 1:nrow(yy) # Giving numbers as new rownames
+    y_actual = as.factor(yy) # Converting y to factor
+    ntab = table(y_actual) # Frequency table y
+    minclass = min(ntab) # Taking less frequent class (?)
+    classnames = names(ntab) # Giving appropriate classnames (?)
   }
   
-  # Missing alpha sequence: 41 evenly spaced values
+  ## Alphas sequence
+  # Missing alpha sequence: 41 evenly spaced values on the [0, 1] interval
   if (missing(alphas)) {
     alphas <- seq(0, 1, length = 41)
   }
   
-  ## User specified: check:
-  # Sorting to get nice order
+  # If user-specified: sorting for clarity
   alphas <- sort(alphas)
   
-  # Checking if values outside [0, 1] are given
+  # Checking if values outside (not admissable) [0, 1] are given
   wh <- (alphas < 0 | alphas > 1)
   if (sum(wh) > 0)  # Error throwing
     stop("alphas can take the values only between 0 and 1")
   
-  ## Missing lambda sequence
-  # Gaussian
+  ## Lambdas Sequence (AND CALCULATING LAMBDA0 =  UPPER BOUND LAMBDA)
+  # Gaussian casen: calculating max lambda ("lambda0")
   if (missing(lambdas) & family == "gaussian") {
     # Bivariate Winsorization method (lambda0()):
-    l0 <- robustHD::lambda0(xx, yy, normalize = scal, intercept = intercept)
-    lambdas <- seq(l0, 0, by = -0.025 * l0)
+    l0 <- robustHD::lambda0(xx, yy, normalize = scal, intercept = intercept) # max (lambda_0) method
+    lambdas <- seq(l0, 0, by = -0.025 * l0) # DECREASING SEQUENCE
   }
-  # Binomial
+  # Binomial case: calculating max lambda ("lambda00")
   else if (missing(lambdas) & family == "binomial") {
-    # Upper limit for lambda penalty (point-biserial)
-    l00 <- lambda00(xx, yy, normalize = scal, intercept = intercept)
+    # Point-biserial method (enetLTS:lambda00)
+    l00 <- lambda00(xx, yy, normalize = scal, intercept = intercept) # lambda00() function
     lambdas <- seq(l00, 0, by = -0.025 * l00)
   }
   
-  # Data Preparation
+  # Data Preparation: Robust (robu = 1) center and location of X, centering of y (Binomial y untouched)
   sc <- prepara(xx, yy, family, robu = 1) # enetLTS:::prepara
-  x <- sc$xnor
-  y <- sc$ycen
+  
+  # Renaming (x, y) are the NORMALIZED VERSIONS
+  x <- sc$xnor # The normalized (scaled + centered) X matrix
+  y <- sc$ycen # Centered-only y vector (Is kept the same for Binomial, i.e. no centering)
   
   # Calling enetLTS:::warmCsteps
   WarmCstepresults <- warmCsteps(x, y, h, n, p, family, alphas, 
                                  lambdas, hsize, nsamp, s1, nCsteps, nfold, para, ncores, 
                                  tol, scal, seed)
-  #?
-  indexall <- WarmCstepresults$indexall #?
-  
+  # Extracting indices for clean datasets for all alpha-lambda combinations
+  indexall <- WarmCstepresults$indexall 
+  # indexall is a 3 dimensional ARRAY of size (h, #lambdas, #alphas) (e.g. 75, 41, 20)
+  # So calling e.g. indexall[1, , 1] Will give all the indices of the first observations (first 1 index) for all 41 
+  # different lambdas (second index) for the first alpha value (third index)
   # Results for single alpha, lambda combination
+  
+  ## FINDING THE BEST ALPHA-LAMBDA COMBINATION
+  # Case: single alpha-lambda combination (trivial)
   if ((length(alphas) == 1) & (length(lambdas) == 1)) {
     if (plot == TRUE) 
       warning("There is no meaning to see plot for a single combination of lambda and alpha")
     indexbest <- drop(indexall)
     alphabest <- alphas
     lambdabest <- lambdas
+    # i.e. the best combiantion is the only one
   }
   
-  # Results for multiple alpha, lambda combinations
+  # Case: Multiple alpha-lambda combinations
   else {
-    CVresults <- cv.enetLTS(indexall, x, y, family, h, alphas, 
-                            lambdas, nfold, repl, ncores, plot)
+    # CV / IC methods are needed to find optimal alpha-lambda combination
+    CVresults <- cv.enetLTS(index = indexall, 
+                            xx = x, 
+                            yy = y, 
+                            family = family, 
+                            h = h, 
+                            alphas = alphas, 
+                            lambdas = lambdas, 
+                            nfold = nfold, 
+                            repl = repl, 
+                            ncores = ncores, 
+                            plot = plot)
+    
+    # Saving the results in some new variables
     indexbest <- CVresults$indexbest
     alphabest <- CVresults$alphaopt
     lambdabest <- CVresults$lambdaopt
     evalCritCV <- CVresults$evalCrit
   }
   
-  # If scaling == TRUE:
-  if (scal) {
-    scl <- prepara(xx, yy, family, indexbest, robu = 0)
-    xs <- scl$xnor
-    ys <- scl$ycen
-    fit <- glmnet(xs[indexbest, ], ys[indexbest, ], family, 
-                  alpha = alphabest, lambda = lambdabest, standardize = FALSE, 
+  ## If scaling == TRUE (default)
+  if (scal == TRUE) {
+    # Data preparation
+    scl <- prepara(xx, yy, family, indexbest, robu = 0) # Nonrobust 
+    xs <- scl$xnor # Normalized X
+    ys <- scl$ycen # Centered y (not for binomial)
+    
+    # Fitting glmnet on best subset
+    fit <- glmnet(xs[indexbest, ], 
+                  ys[indexbest, ], 
+                  family, 
+                  alpha = alphabest, 
+                  lambda = lambdabest, 
+                  standardize = FALSE, # Because already done
                   intercept = FALSE)
     
     # Binomial 
@@ -121,46 +152,62 @@ enetLTS <- function (xx, yy, family = c("gaussian", "binomial"), alphas,
         0
       # If yes intercept:
       else drop(fit$a0 - as.vector(as.matrix(fit$beta)) %*% (scl$mux/scl$sigx)) # Something with results from prepara()
+      # drop() deletes the (redundant?) dimensions of an array which only has 1 level
       
       raw.coefficients <- drop(as.matrix(fit$beta)/scl$sigx)
       raw.residuals <- -(ys * xs %*% as.matrix(fit$beta)) + log(1 + exp(xs %*% as.matrix(fit$beta)))
-      raw.wt <- weight.binomial(xx, yy, c(a00, raw.coefficients), 
-                                intercept = intercept, del)
+      raw.wt <- weight.binomial(xx, yy, c(a00, raw.coefficients), intercept = intercept, del)
+      
+      # Again centeirng and scaling (nonrobust ?)
       sclw <- prepara(xx, yy, family, which(raw.wt == 1), robu = 0)
       xss <- sclw$xnor
       yss <- sclw$ycen
       
-      # Missing lambda
+      ## Updating lambda (using CV) for reweighting 
+      # No user-supplied lambda (most probably the case)
       if (missing(lambdaw)) {
-        lambdaw <- cv.glmnet(xss[which(raw.wt == 1), 
-                                 ], yss[which(raw.wt == 1)], family = family, 
-                             nfolds = 5, alpha = alphabest, standardize = FALSE, 
-                             intercept = FALSE, type.measure = "mse")$lambda.min
+        lambdaw <- cv.glmnet(xss[which(raw.wt == 1), ], 
+                             yss[which(raw.wt == 1)], 
+                             family = family, 
+                             nfolds = 5, 
+                             alpha = alphabest, 
+                             standardize = FALSE, 
+                             intercept = FALSE, 
+                             type.measure = "mse")$lambda.min # ??? MSE and lambda.min?
       }
       # 1 User-supplied lambda
       else if (!missing(lambdaw) & length(lambdaw) == 1) {
-        lambdaw <- lambdaw
+        lambdaw <- lambdaw # Easy, just pick that lambdaw
       }
-      # Multiple user-supplied lambda
+      # Multiple user-supplied lambda (using enet warm starts)
       else if (!missing(lambdaw) & length(lambdaw) > 1) {
-        lambdaw <- cv.glmnet(xss[which(raw.wt == 1), 
-                                 ], yss[which(raw.wt == 1)], family = family, 
-                             lambda = lambdaw, nfolds = 5, alpha = alphabest, 
-                             standardize = FALSE, intercept = FALSE, type.measure = "mse")$lambda.min
+        lambdaw <- cv.glmnet(xss[which(raw.wt == 1), ], 
+                             yss[which(raw.wt == 1)], 
+                             family = family, 
+                             lambda = lambdaw, 
+                             nfolds = 5, 
+                             alpha = alphabest, # No tuning for alpha, only the optimal alpha supplied
+                             standardize = FALSE, 
+                             intercept = FALSE, 
+                             type.measure = "mse")$lambda.min # ??? MSE and lambda.min
       }
-      fitw <- glmnet(xss[which(raw.wt == 1), ], yss[which(raw.wt == 1)], family, alpha = alphabest, lambda = lambdaw, 
-                     standardize = FALSE, intercept = FALSE)
+      
+      # fitw: Fitting glmnet (not tuning anymore) using the updated lambba (lambdaw)
+      fitw <- glmnet(xss[which(raw.wt == 1), ], 
+                     yss[which(raw.wt == 1)], 
+                     family, 
+                     alpha = alphabest, 
+                     lambda = lambdaw, 
+                     standardize = FALSE, 
+                     intercept = FALSE)
       a0 <- if (intercept == F) 
         0
-      else drop(fitw$a0 - as.vector(as.matrix(fitw$beta)) %*% 
-                  (sclw$mux/sclw$sigx))
+      else drop(fitw$a0 - as.vector(as.matrix(fitw$beta)) %*% (sclw$mux/sclw$sigx))
       coefficients <- drop(as.matrix(fitw$beta)/sclw$sigx)
-      wgt <- weight.binomial(xx, yy, c(a0, coefficients), 
-                             intercept, del)
-      reweighted.residuals <- -(yy * cbind(1, xx) %*% c(a0, 
-                                                        coefficients)) + log(1 + exp(cbind(1, xx) %*% 
-                                                                                       c(a0, coefficients)))
+      wgt <- weight.binomial(xx, yy, c(a0, coefficients), intercept, del)
+      reweighted.residuals <- -(yy * cbind(1, xx) %*% c(a0, coefficients)) + log(1 + exp(cbind(1, xx) %*% c(a0, coefficients)))
     }
+    # Gaussian case
     else if (family == "gaussian") {
       a00 <- if (intercept == F) 
         0
@@ -203,26 +250,34 @@ enetLTS <- function (xx, yy, family = c("gaussian", "binomial"), alphas,
       reweighted.rmse <- sqrt(mean(reweighted.residuals^2))
       wgt <- weight.gaussian(reweighted.residuals, raw.wt == 
                                1, del)$we
-    }
-  }
+    } # END Gaussian Case
+  } # END IF SCALING == TRUE
+  
+  ## If scale = FALSE (nondefault)
   else {
-    fit <- glmnet(x[indexbest, ], y[indexbest, ], family, 
-                  alpha = alphabest, lambda = lambdabest, standardize = FALSE, 
+    # Fitting (without scaling data)
+    fit <- glmnet(x[indexbest, ], 
+                  y[indexbest, ], family, 
+                  alpha = alphabest, 
+                  lambda = lambdabest, 
+                  standardize = FALSE, 
                   intercept = FALSE)
+    
+    # Binomial Case
     if (family == "binomial") {
       a00 <- if (intercept == F) 
         0
-      else drop(fit$a0 - as.vector(as.matrix(fit$beta)) %*% 
-                  (sc$mux/sc$sigx))
+      else drop(fit$a0 - as.vector(as.matrix(fit$beta)) %*% (sc$mux/sc$sigx))
       raw.coefficients <- drop(as.matrix(fit$beta)/sc$sigx)
-      raw.residuals <- -(y * x %*% as.matrix(fit$beta)) + 
-        log(1 + exp(x %*% as.matrix(fit$beta)))
-      raw.wt <- weight.binomial(xx, yy, c(a00, raw.coefficients), 
-                                intercept, del)
+      raw.residuals <- -(y * x %*% as.matrix(fit$beta)) + log(1 + exp(x %*% as.matrix(fit$beta)))
+      raw.wt <- weight.binomial(xx, yy, c(a00, raw.coefficients), intercept, del)
       if (missing(lambdaw)) {
         lambdaw <- cv.glmnet(x[which(raw.wt == 1), ], 
-                             y[which(raw.wt == 1)], family = family, nfolds = 5, 
-                             alpha = alphabest, standardize = FALSE, intercept = FALSE, 
+                             y[which(raw.wt == 1)], family = family, 
+                             nfolds = 5, 
+                             alpha = alphabest, 
+                             standardize = FALSE, 
+                             intercept = FALSE, 
                              type.measure = "mse")$lambda.min
       }
       else if (!missing(lambdaw) & length(lambdaw) == 1) {
@@ -230,24 +285,31 @@ enetLTS <- function (xx, yy, family = c("gaussian", "binomial"), alphas,
       }
       else if (!missing(lambdaw) & length(lambdaw) > 1) {
         lambdaw <- cv.glmnet(x[which(raw.wt == 1), ], 
-                             y[which(raw.wt == 1)], family = family, lambda = lambdaw, 
-                             nfolds = 5, alpha = alphabest, standardize = FALSE, 
-                             intercept = FALSE, type.measure = "mse")$lambda.min
+                             y[which(raw.wt == 1)], 
+                             family = family, 
+                             lambda = lambdaw, 
+                             nfolds = 5, 
+                             alpha = alphabest, 
+                             standardize = FALSE, 
+                             intercept = FALSE, 
+                             type.measure = "mse")$lambda.min
       }
-      fitw <- glmnet(x[which(raw.wt == 1), ], y[which(raw.wt == 
-                                                        1)], family, alpha = alphabest, lambda = lambdaw, 
-                     standardize = FALSE, intercept = FALSE)
+      fitw <- glmnet(x[which(raw.wt == 1), ], 
+                     y[which(raw.wt == 1)], 
+                     family, alpha = alphabest, 
+                     lambda = lambdaw, 
+                     standardize = FALSE, 
+                     intercept = FALSE)
       a0 <- if (intercept == F) 
         0
       else drop(fitw$a0 - as.vector(as.matrix(fitw$beta)) %*% 
                   (sc$mux/sc$sigx))
       coefficients <- drop(as.matrix(fitw$beta)/sc$sigx)
-      wgt <- weight.binomial(xx, yy, c(a0, coefficients), 
-                             intercept, del)
-      reweighted.residuals <- -(yy * cbind(1, xx) %*% c(a0, 
-                                                        coefficients)) + log(1 + exp(cbind(1, xx) %*% 
-                                                                                       c(a0, coefficients)))
+      wgt <- weight.binomial(xx, yy, c(a0, coefficients), intercept, del)
+      reweighted.residuals <- -(yy * cbind(1, xx) %*% c(a0, coefficients)) + log(1 + exp(cbind(1, xx) %*% c(a0, coefficients)))
     }
+    
+    # Gaussian case
     else if (family == "gaussian") {
       a00 <- if (intercept == F) 
         0
@@ -260,8 +322,10 @@ enetLTS <- function (xx, yy, family = c("gaussian", "binomial"), alphas,
                                 del)$we
       if (missing(lambdaw)) {
         lambdaw <- cv.glmnet(x[which(raw.wt == 1), ], 
-                             y[which(raw.wt == 1)], family = family, nfolds = 5, 
-                             alpha = alphabest, standardize = FALSE, intercept = FALSE, 
+                             y[which(raw.wt == 1)], family = family, 
+                             nfolds = 5, 
+                             alpha = alphabest, standardize = FALSE, 
+                             intercept = FALSE, 
                              type.measure = "mse")$lambda.min
       }
       else if (!missing(lambdaw) & length(lambdaw) == 1) {
@@ -269,13 +333,21 @@ enetLTS <- function (xx, yy, family = c("gaussian", "binomial"), alphas,
       }
       else if (!missing(lambdaw) & length(lambdaw) > 1) {
         lambdaw <- cv.glmnet(x[which(raw.wt == 1), ], 
-                             y[which(raw.wt == 1)], family = family, lambda = lambdaw, 
-                             nfolds = 5, alpha = alphabest, standardize = FALSE, 
-                             intercept = FALSE, type.measure = "mse")$lambda.min
+                             y[which(raw.wt == 1)], family = family, 
+                             lambda = lambdaw, 
+                             nfolds = 5, 
+                             alpha = alphabest, 
+                             standardize = FALSE, 
+                             intercept = FALSE, 
+                             type.measure = "mse")$lambda.min
       }
-      fitw <- glmnet(x[which(raw.wt == 1), ], y[which(raw.wt == 
-                                                        1)], family, alpha = alphabest, lambda = lambdaw, 
-                     standardize = FALSE, intercept = FALSE)
+      # Fitting reweighted fit
+      fitw <- glmnet(x[which(raw.wt == 1), ], 
+                     y[which(raw.wt == 1)], 
+                     family, alpha = alphabest, 
+                     lambda = lambdaw, 
+                     standardize = FALSE, 
+                     intercept = FALSE)
       a0 <- if (intercept == F) 
         0
       else drop(sc$muy + fitw$a0 - as.vector(as.matrix(fitw$beta)) %*% 
@@ -284,8 +356,7 @@ enetLTS <- function (xx, yy, family = c("gaussian", "binomial"), alphas,
       reweighted.residuals <- yy - cbind(1, xx) %*% c(a0, 
                                                       coefficients)
       reweighted.rmse <- sqrt(mean(reweighted.residuals^2))
-      wgt <- weight.gaussian(reweighted.residuals, raw.wt == 
-                               1, del)$we
+      wgt <- weight.gaussian(reweighted.residuals, raw.wt == 1, del)$we
     }
   }
   num.nonzerocoef <- sum(coefficients != 0)
@@ -320,12 +391,13 @@ enetLTS <- function (xx, yy, family = c("gaussian", "binomial"), alphas,
     raw.fitted.values <- xx %*% raw.coefficients
     fitted.values <- xx %*% coefficients
   }
+  ## Objective
+  # Binomial
   if (family == "binomial") {
-    objective <- h * (mean((-yy[indexbest] * (xx[indexbest, 
-                                                 ] %*% coefficients)) + log(1 + exp(xx[indexbest, 
-                                                                                       ] %*% coefficients))) + lambdabest * sum(1/2 * (1 - 
+    objective <- h * (mean((-yy[indexbest] * (xx[indexbest, ] %*% coefficients)) + log(1 + exp(xx[indexbest,] %*% coefficients))) + lambdabest * sum(1/2 * (1 - 
                                                                                                                                          alphabest) * coefficients^2 + alphabest * abs(coefficients)))
   }
+  # Gaussian
   else if (family == "gaussian") {
     objective <- h * ((1/2) * mean((yy[indexbest] - xx[indexbest, 
                                                        ] %*% coefficients)^2) + lambdabest * sum(1/2 * (1 - 

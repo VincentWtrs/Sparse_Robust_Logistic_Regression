@@ -1,7 +1,7 @@
 ### logit_sim_summary() function: to take the results from a logit_sim object and return the relevant statistics
 ## The main idea is that it will summarize over the runs, i.e. per estimator
 ## INPUT:
-# logit_sim: logit_sim object from the logit_sim function, a list containing model information, ...
+# logit_sim: A LIST OF logit_sim objects from the logit_sim function, a list containing model information, ...
 # NOTE: don't mix up beta dimensionalities here, this depends on what comes out of the beta
 logit_sim_summary <- function(logit_sim){
   

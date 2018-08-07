@@ -1,4 +1,16 @@
-logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty = 0, type, dgp = "latent", glmnet1_alpha = 1){
+logit_sim <- function(beta, 
+                      sigma_in = NULL, 
+                      p, 
+                      p_a, 
+                      n, 
+                      runs, 
+                      seed = 1234, 
+                      dirty = 0, 
+                      type, 
+                      dgp = "latent", 
+                      glmnet1_alpha = 1,
+                      alphas,
+                      ic_type){
   ### LOGIT SIMULATION FUNCTION
   ## INPUT: beta_vector: a vector of true betas
   # n: the sample size (integer)
@@ -113,7 +125,45 @@ logit_sim <- function(beta, sigma_in = NULL, p, p_a, n, runs, seed = 1234, dirty
                                  yy = y,
                                  family = "binomial",
                                  hsize = 0.75, # .75 is default
-                                 nfold = 5,
+                                 nfold = 5, # Default
+                                 repl = 5, # Default
+                                 intercept = TRUE) # Default
+      # intercept = TRUE set because the model matrix doesn't have intercept atm
+      
+      # Predict (training set)
+      preds_train <- unname(unlist(predict(model_list[[r]],
+                                           newX = X,
+                                           type = "response",
+                                           vers = "reweighted")))
+      # Need to unname/unlist the thing otherwise it's a mess (default returns a named list)
+      
+      
+      # Predict on test sets
+      preds_test[[r]] <- unname(unlist(predict(model_list[[r]], 
+                                               newX = X_test,
+                                               type = "response",
+                                               vers = "reweighted")))
+    }
+  }
+  
+  # enetLTS with IC selection (NOTE: THE NEW enetLTS:::enetLTS() and all other functions need to be loaded)
+  if(type == "enetLTS_IC"){
+    for(r in 1:runs){
+      # Prepare data
+      X <- as.matrix(training_data[[r]][, - 1, drop = FALSE]) # Drop = false such that they don't become vectors
+      y <- training_data[[r]][, 1]
+      
+      X_test <- as.matrix(test_data[[r]][, -1, drop = FALSE])
+      
+      # Fit model
+      model_list[[r]] <- enetLTS:::enetLTS(xx = X, # Need to load it like this, weird
+                                 yy = y,
+                                 family = "binomial",
+                                 alphas = 1, # Other values are difficult for df calculations
+                                 hsize = 0.75, # .75 is default
+                                 nfold = 1, # no cv for IC
+                                 repl = 1, # no cv for IC
+                                 ic_type = ic_type, # Give the IC type
                                  intercept = TRUE)
       # intercept = TRUE set because the model matrix doesn't have intercept atm
       
