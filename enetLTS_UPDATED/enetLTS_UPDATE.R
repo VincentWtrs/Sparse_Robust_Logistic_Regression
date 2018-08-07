@@ -62,33 +62,81 @@ enetLTS_UPDATE <- function (xx, yy, family = c("gaussian", "binomial"), alphas,
   sc <- enetLTS:::prepara(xx, yy, family, robu = 1)
   x <- sc$xnor
   y <- sc$ycen
-  WarmCstepresults <- enetLTS:::warmCsteps(x, y, h, n, p, family, alphas, 
-                                 lambdas, hsize, nsamp, s1, nCsteps, nfold, para, ncores, 
-                                 tol, scal, seed)
+  WarmCstepresults <- enetLTS:::warmCsteps(x = x, 
+                                           y = y, 
+                                           h = h, 
+                                           n = n, 
+                                           p = p, 
+                                           family = family, 
+                                           alphas = alphas, 
+                                           lambdas = lambdas, 
+                                           hsize = hsize, 
+                                           nsamp = nsamp, 
+                                           s1 = s1, 
+                                           Csteps = ncsteps, # Note differing argument name here 
+                                           nfold = nfold, 
+                                           para = para, 
+                                           ncores = ncores, 
+                                           tol = tol, 
+                                           scal = scal, 
+                                           seed = seed)
   indexall <- WarmCstepresults$indexall
   
-  if ((length(alphas) == 1) & (length(lambdas) == 1)) {
-    if (plot == TRUE) 
+  if((length(alphas) == 1) & (length(lambdas) == 1)) {
+    if(plot == TRUE) 
       warning("There is no meaning to see plot for a single combination of lambda and alpha")
     indexbest <- drop(indexall)
     alphabest <- alphas
     lambdabest <- lambdas
-  }
-  else { # NEW: Changed from cv.enetLTS to cv.enetLTS_UPDATE
-    CVresults <- cv.enetLTS_UPDATE(indexall, x, y, family, h, alphas, 
-                                   lambdas, nfold, repl, ncores, plot, ic_type) # NEW: ic_type 
+    
+  } if((length(alphas) > 1) | (length(lambdas) > 1)) { # NEW: added more specific split here
+    if(ic == FALSE){ # NEW: if no IC type is supplied than CV will be used
+    # NEW: Changed from cv.enetLTS to cv.enetLTS_UPDATE ## NEW(2): got IC calculations out of cv.enetLTS_UPDATE
+    CVresults <- cv.enetLTS_UPDATE(indexall, 
+                                   x, 
+                                   y, 
+                                   family, 
+                                   h, 
+                                   alphas, 
+                                   lambdas, 
+                                   nfold, 
+                                   repl, 
+                                   ncores, 
+                                   plot, 
+                                   ic_type) # NEW: ic_type ## NEW(2): remove ic_type
     indexbest <- CVresults$indexbest
     alphabest <- CVresults$alphaopt
     lambdabest <- CVresults$lambdaopt
     evalCritCV <- CVresults$evalCrit
+    }
+    if(ic == TRUE){ # NEW: IC CALCULATION HAPPENS OUTSIDE OF cv.enetLTS_UPDATE
+      print("Information criterion method: nfold and repl ignored and set to 1")
+      ICresults <- ic.enetLTS(indexall,
+                              x,
+                              y,
+                              family,
+                              h,
+                              alphas,
+                              lambdas,
+                              plot,
+                              ic_type)
+      indexbest <- ICresults$indexbest
+      alphabest <- ICresults$alphaopt
+      lambdabest <- ICresults$lambda$opt
+      evalCritCV <- ICresults$evalCrit # We just keep the name for convenience
+      }
   }
   if (scal) {
     scl <- enetLTS:::prepara(xx, yy, family, indexbest, robu = 0)
     xs <- scl$xnor
     ys <- scl$ycen
-    fit <- glmnet(xs[indexbest, ], ys[indexbest, ], family, 
-                  alpha = alphabest, lambda = lambdabest, standardize = FALSE, 
-                  intercept = FALSE)
+    fit <- glmnet(xs[indexbest, ], 
+                  ys[indexbest, ], 
+                  family, 
+                  alpha = alphabest, 
+                  lambda = lambdabest, 
+                  standardize = FALSE, 
+                  intercept = FALSE) #!
     if (family == "binomial") {
       a00 <- if (intercept == F) 
         0
