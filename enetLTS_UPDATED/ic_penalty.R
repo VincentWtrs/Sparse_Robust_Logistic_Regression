@@ -8,6 +8,8 @@ ic_penalty <- function(glmnet_in, type, X, alpha, intercept){
   # alpha: because for some stupid reason one cannot extract it from the glmnet function.
   # intercept: if intercept was used to fit the logit-glmnet (family = "binomial") model: TRUE.
   
+  ## OUPUTS:
+  # Numeric value denoting the effective degrees of freedom
   
   ## Error Catching
   # Checking if model is glmnet
