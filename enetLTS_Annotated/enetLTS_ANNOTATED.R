@@ -5,7 +5,29 @@ enetLTS <- function (xx, yy, family = c("gaussian", "binomial"), alphas,
                      scal = TRUE, type = c("response", "class")) 
 {
   ## INPUT
-  # hsize is the procentual value of the sample to keep (floored)
+  # xx: Predictor matrix (numeric, hence dummies need to be constructed beforehand)
+  # yy: Outcome variable, for binomial factor CODED as 0/1!
+  # family: The outcome variable distribution family (R Documentation states error distribution, this is wrong)
+  # alphas: Sequence of alphas [0, 1] to fit the models, doesn't have to be in any order.
+  # lambdas: Positive sequence of lambdas to fit the models, doesn't have to be in any order.
+  # lamdbdaw: Positive sequence of lambdas for the reweighted fits
+  # hsize: Fraction of data to be used for fitting. Default: 0.75, pick lower for more conservative fitting
+  # intercept: Logical if intercept needs to be included. Best to use default (TRUE), and keep intercept out of xx!
+  # scal: Logical if scaling of the h-subsamples needs to be performed, default: TRUE.
+  # nsamp: The amount of elemental subsets (size = 3 or 4) to generate, default: 500.
+  # s1: The amount of promising h (?) subsets to keep after running 2 C-steps on the nsamp elemental subsets.
+  # nCsteps: A maximum amount of Csteps that the while-loops have to go through (to prevent stuck while-loops, default: 20).
+  # nfold: Amount of folds to be used in the k-fold cross validation, default: 5.
+  # seed: Initial seed for the random number generator for determining elemental subsets.
+  # plot: Logical, if the alpha-lambda-Error tile plot needs to be made, default: TRUE.
+  # repl: Amount of replications (repetitions) of the cross validation procedure, default: 5.
+  # para: parallel fitting of the folds in the cross validation structure.
+  # ncores: For parallel computation of certain parts (different than the CV structure!). NOT AVAILABLE ON WINDOWS.
+  # del: 1-del: is the quantile to give 0-weight to an observation (hence this is flagged as outlier) in the reweighing step!
+  # tol: Tolerance for stopping while loops in the C-step procedures, default: -1e+06
+  # type: type of predictions required, default: c("response", "class")
+  
+  
   
   ### PREPARATION AND ERROR HANDLING
   ## Arguments handling
@@ -14,13 +36,13 @@ enetLTS <- function (xx, yy, family = c("gaussian", "binomial"), alphas,
   
   family <- match.arg(family)
   type <- match.arg(type)
-  xx <- addColnames(as.matrix(xx)) # This probably adds colnames (internal, unknown function)
-  nc = dim(yy) # Dimension of outcome (yy)
+  xx <- enetLTS:::addColnames(as.matrix(xx)) # This probably adds colnames (internal, unknown function)
+  nc = dim(yy) # Dimension of outcome (yy) e.g. n x 1
   if (is.null(nc)) { # If yy is vector, dim() will return NULL, then yy will be forced to matrix
     yy <- as.matrix(yy)
   }
-  n <- nrow(xx) # Amount of columns
-  p <- ncol(xx) # 
+  n <- nrow(xx) # Amount of rows (n, not h!)
+  p <- ncol(xx) # Amount of TRUE predictors (hence no intercept included)
   h <- floor((n + 1) * hsize) # h is the sample size (TO DO: why n + 1?)
   
   ## Some error throwing
@@ -48,7 +70,8 @@ enetLTS <- function (xx, yy, family = c("gaussian", "binomial"), alphas,
     ntab = table(y_actual) # Frequency table y
     minclass = min(ntab) # Taking less frequent class (?)
     classnames = names(ntab) # Giving appropriate classnames (?)
-  }
+  }  # Seems like nothing is done with this information actually...
+
   
   ## Alphas sequence
   # Missing alpha sequence: 41 evenly spaced values on the [0, 1] interval
@@ -57,7 +80,7 @@ enetLTS <- function (xx, yy, family = c("gaussian", "binomial"), alphas,
   }
   
   # If user-specified: sorting for clarity
-  alphas <- sort(alphas)
+  alphas <- sort(alphas) # Increasing (e.g. from 0 to 1)
   
   # Checking if values outside (not admissable) [0, 1] are given
   wh <- (alphas < 0 | alphas > 1)
@@ -70,25 +93,38 @@ enetLTS <- function (xx, yy, family = c("gaussian", "binomial"), alphas,
     # Bivariate Winsorization method (lambda0()):
     l0 <- robustHD::lambda0(xx, yy, normalize = scal, intercept = intercept) # max (lambda_0) method
     lambdas <- seq(l0, 0, by = -0.025 * l0) # DECREASING SEQUENCE
-  }
-  # Binomial case: calculating max lambda ("lambda00")
-  else if (missing(lambdas) & family == "binomial") {
+    
+    # Binomial case: calculating max lambda ("lambda00")
+  } else if (missing(lambdas) & family == "binomial") {
     # Point-biserial method (enetLTS:lambda00)
     l00 <- lambda00(xx, yy, normalize = scal, intercept = intercept) # lambda00() function
-    lambdas <- seq(l00, 0, by = -0.025 * l00)
+    lambdas <- seq(l00, 0, by = -0.025 * l00) # Decreasing sequence
   }
   
-  # Data Preparation: Robust (robu = 1) center and location of X, centering of y (Binomial y untouched)
-  sc <- prepara(xx, yy, family, robu = 1) # enetLTS:::prepara
-  
-  # Renaming (x, y) are the NORMALIZED VERSIONS
+  ## Data Preparation: Robust (robu = 1) center and location of X, centering of y (Binomial y untouched)
+  sc <- enetLTS:::prepara(xx, yy, family, robu = 1) # enetLTS:::prepara
   x <- sc$xnor # The normalized (scaled + centered) X matrix
   y <- sc$ycen # Centered-only y vector (Is kept the same for Binomial, i.e. no centering)
   
-  # Calling enetLTS:::warmCsteps
-  WarmCstepresults <- warmCsteps(x, y, h, n, p, family, alphas, 
-                                 lambdas, hsize, nsamp, s1, nCsteps, nfold, para, ncores, 
-                                 tol, scal, seed)
+  ## Calling enetLTS:::warmCsteps
+  WarmCstepresults <- enetLTS:::warmCsteps(x = x, 
+                                           y = y,
+                                           h = h, 
+                                           n = n, 
+                                           p = p, 
+                                           family = family, 
+                                           alphas = alphas, # Calling with whole sequence at once
+                                           lambdas = lambdas, # Calling with whole sequence at once
+                                           hsize = hsize, 
+                                           nsamp = nsamp, 
+                                           s1 = s1, 
+                                           csteps = nCsteps, # NAME DIFFERENT
+                                           nfold = nfold, 
+                                           para = para, 
+                                           ncores = ncores, 
+                                           tol = tol, 
+                                           scal = scal, 
+                                           seed = seed)
   # Extracting indices for clean datasets for all alpha-lambda combinations
   indexall <- WarmCstepresults$indexall 
   # indexall is a 3 dimensional ARRAY of size (h, #lambdas, #alphas) (e.g. 75, 41, 20)
@@ -105,23 +141,22 @@ enetLTS <- function (xx, yy, family = c("gaussian", "binomial"), alphas,
     alphabest <- alphas
     lambdabest <- lambdas
     # i.e. the best combiantion is the only one
-  }
-  
-  # Case: Multiple alpha-lambda combinations
-  else {
-    # CV / IC methods are needed to find optimal alpha-lambda combination
-    CVresults <- cv.enetLTS(index = indexall, 
-                            xx = x, 
-                            yy = y, 
-                            family = family, 
-                            h = h, 
-                            alphas = alphas, 
-                            lambdas = lambdas, 
-                            nfold = nfold, 
-                            repl = repl, 
-                            ncores = ncores, 
-                            plot = plot)
     
+  # Case: Multiple alpha-lambda combinations
+  } else {
+    # CV / IC methods are needed to find optimal alpha-lambda combination
+    CVresults <- enetLTS:::cv.enetLTS(index = indexall, 
+                                      xx = x, 
+                                      yy = y, 
+                                      family = family, 
+                                      h = h, 
+                                      alphas = alphas, 
+                                      lambdas = lambdas, 
+                                      nfold = nfold, 
+                                      repl = repl, 
+                                      ncores = ncores, 
+                                      plot = plot)
+
     # Saving the results in some new variables
     indexbest <- CVresults$indexbest
     alphabest <- CVresults$alphaopt
@@ -143,15 +178,15 @@ enetLTS <- function (xx, yy, family = c("gaussian", "binomial"), alphas,
                   alpha = alphabest, 
                   lambda = lambdabest, 
                   standardize = FALSE, # Because already done
-                  intercept = FALSE)
+                  intercept = FALSE) # IS THIS ALSO VALID FOR family = "binomial?"
     
     # Binomial 
     if (family == "binomial") {
       # If no intercept:
-      a00 <- if (intercept == F) 
-        0
-      # If yes intercept:
-      else drop(fit$a0 - as.vector(as.matrix(fit$beta)) %*% (scl$mux/scl$sigx)) # Something with results from prepara()
+      a00 <- if(intercept == F){
+        0} else{ 
+          drop(fit$a0 - as.vector(as.matrix(fit$beta)) %*% (scl$mux/scl$sigx))} # ???? (note: changed the parentheses a bit)
+      # Something with results from prepara()
       # drop() deletes the (redundant?) dimensions of an array which only has 1 level
       
       raw.coefficients <- drop(as.matrix(fit$beta)/scl$sigx)
@@ -211,8 +246,7 @@ enetLTS <- function (xx, yy, family = c("gaussian", "binomial"), alphas,
     else if (family == "gaussian") {
       a00 <- if (intercept == F) 
         0
-      else drop(scl$muy + fit$a0 - as.vector(as.matrix(fit$beta)) %*% 
-                  (scl$mux/scl$sigx))
+      else drop(scl$muy + fit$a0 - as.vector(as.matrix(fit$beta)) %*% (scl$mux/scl$sigx))
       raw.coefficients <- drop(as.matrix(fit$beta)/scl$sigx)
       raw.residuals <- yy - cbind(1, xx) %*% c(a00, raw.coefficients)
       raw.rmse <- sqrt(mean(raw.residuals^2))
@@ -242,8 +276,7 @@ enetLTS <- function (xx, yy, family = c("gaussian", "binomial"), alphas,
                      standardize = FALSE, intercept = FALSE)
       a0 <- if (intercept == F) 
         0
-      else drop(sclw$muy + fitw$a0 - as.vector(as.matrix(fitw$beta)) %*% 
-                  (sclw$mux/sclw$sigx))
+      else drop(sclw$muy + fitw$a0 - as.vector(as.matrix(fitw$beta)) %*% (sclw$mux/sclw$sigx))
       coefficients <- drop(as.matrix(fitw$beta)/sclw$sigx)
       reweighted.residuals <- yy - cbind(1, xx) %*% c(a0, 
                                                       coefficients)
@@ -267,7 +300,7 @@ enetLTS <- function (xx, yy, family = c("gaussian", "binomial"), alphas,
     if (family == "binomial") {
       a00 <- if (intercept == F) 
         0
-      else drop(fit$a0 - as.vector(as.matrix(fit$beta)) %*% (sc$mux/sc$sigx))
+      else drop(fit$a0 - as.vector(as.matrix(fit$beta)) %*% (sc$mux/sc$sigx)) # ???
       raw.coefficients <- drop(as.matrix(fit$beta)/sc$sigx)
       raw.residuals <- -(y * x %*% as.matrix(fit$beta)) + log(1 + exp(x %*% as.matrix(fit$beta)))
       raw.wt <- weight.binomial(xx, yy, c(a00, raw.coefficients), intercept, del)
