@@ -1,4 +1,4 @@
-ic_penalty <- function(glmnet_in, type, X, alpha, intercept){
+ic_penalty <- function(type, model, X, alpha, intercept, EBIC_sigma = 0.25){
   # This function aims to calculate information criteria PENALTY factor (which then needs to be ADDEd to loglik(= minus loss))
   
   ## INPUTS:
@@ -18,45 +18,106 @@ ic_penalty <- function(glmnet_in, type, X, alpha, intercept){
   #}
   
   # Checking if type is supported
-  if(type != "AIC" & type != "BIC" & type != "EBIC"){
-    stop("Only information criteria supported: AIC, BIC, EBIC")
+  if(type != "AIC"  &
+     type != "AIC_C" &
+     type != "BIC" &
+     type != "EBIC" &
+     type != "GIC" & 
+     type != "BIC_WLL" &
+     type != "BIC_FT" &
+     type != "HBIC" &
+     type != "BIC_HD" &
+     type != "EBIC2" &
+     type != "ERIC"){
+    stop("This type of information criterion not supported (or check for typos)")
   }
   
   # Extracting parameters
-  model <- glmnet_in # Renaming for convenience
-  h <- model$nobs
-  coefs_nonzero <- model$df # Intercept or not?
-  p <- length(coefficients(model))
+  nobs <- model$nobs
   
-  
-  # If alpha = 1 (LASSO) then the degrees of freedom (df) is equal to amount of nonzero coefs
-  if(alpha == 1){
-    df <- coefs_nonzero # For LASSO: simple
-  } else { # ONLY enetLTS() MODELS SUPPORTED!!!
-    df <- logit_df(logit = glmnet_in, X)
-    
+  # Amount of parameters
+  if(intercept == TRUE){
+    stop("IC with intercept currently not implemented yet")
+    # p <- length(coefficients(model))
   }
+  if(intercept == FALSE){
+    p <- length(coefficients(model)) - 1 # Because intercept is always returned (hence - 1)
+  }
+  
+  # Calculating Degrees of Freedom (Effective DF!)
+  df <- logit_df(model = model,
+                 X = X,
+                 alpha = alpha,
+                 intercept = intercept)
+  
+  # Amount of nonzeros
+  nonzeros <- model$df
   
   ## Calculating the information criteria penalty
   # Akaike Information Criterion (AIC)
   if(type == "AIC"){
-    penalty <- (2 * df)/h
+    penalty <- (2 * df)/nobs
+  }
+  
+  # Corrected AIC (AIC_C)
+  if(type == "AIC_C"){
+    penalty <- (2 * df * (nobs/(n - df - 1)))/nobs
   }
   
   # Bayesian Information Criterion (BIC)
   if(type == "BIC"){
-    penalty <- (df * log(h))/h
+    penalty <- (df * log(nobs))/nobs
+  }
+  
+  # BIC-type: Wang, Li & Leng (2009)
+  if(type == "BIC_WLL"){
+    penalty <- (df * log(n) * log(log(p)))/nobs
+  }
+  
+  # BIC-type: Fang & Tang (2012) -> GIC
+  if(type == "BIC_FT"){ 
+    penalty <- (df * log(log(n)) * log(p))/nobs
+  }
+  
+  # HBIC: High-dimensional BIC
+  if(type == "HBIC"){
+    sigma <- 1.5 # Empirically well-performing ]1, 2]
+    if(sigma > 1){
+      stop("Sigma is required to be > 1 following Wang & Zhu (2011)")
+    }
+    penalty <- (2 * sigma * df * log(p))/nobs
+  } # I don't see how this comes
+  
+  # BIC for High Dimensions (Gao, ...)
+  if(type == "BIC_HD"){
+    c <- 1 # Common choices: 1 or 2
+    penalty <- (c * log(p) * df)/nobs
   }
   
   # Extended Bayesian Information Criterion (EBIC)
   if(type == "EBIC"){
-    sigma <- 0.25 # Some default value!
-    penalty <- (coefs_nonzero * log(h) + 2 * coefs_nonzero * sigma * log(p))/h
+    sigma <- EBIC_sigma # Some default value! (e.g. 0.25)
+    #penalty <- (coefs_nonzero * log(nobs) + 2 * coefs_nonzero * sigma * log(p))/nobs # THEORY
+    penalty <- (df * log(nobs) + 2 * df * sigma * log(p))/nobs
+  }
+  
+  # EBIC2: Alternative EBIC - Chen & Chen (2008)
+  if(type == "EBIC2"){
+    sigma <- EBIC_sigma # 0.25 good default
+    penalty <- (df * log(nobs) + 2 * sigma * log(choose(p, nonzeros)))/nobs
   }
   
   # Generalized Information Criterion (GIC)
   if(type == "GIC"){
-    penalty <- 0
+    a_n <- log(log(nobs))*log(p) # Also possible: log(p)
+    penalty <- (a_n * df)/nobs
+  }
+  
+  # Extended Regularized Information Criterion (ERIC)
+  if(type == "ERIC"){
+    nu <- 0.5 # Often suggested values: 0.5 or 1
+    penalty <- (2 * nu * nonzeros * log(nobs/lambda))/nobs
+    # Alternatively: penalty <-  (2 * nu * df * log(nobs/lambda))/nobs
   }
   
   return(penalty)
