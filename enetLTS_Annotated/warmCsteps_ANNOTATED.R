@@ -1,5 +1,4 @@
-warmCsteps <- function(x, y, h, n, p, family, alphas, lambdas, hsize, nsamp, 
-                       s1, csteps, nfold, para, ncores, tol, scal, seed) 
+warmCsteps <- function(x, y, h, n, p, family, alphas, lambdas, hsize, nsamp, s1, csteps, nfold, para, ncores, tol, scal, seed) 
 {
   
   ### warmCsteps() FUNCTION
@@ -7,118 +6,183 @@ warmCsteps <- function(x, y, h, n, p, family, alphas, lambdas, hsize, nsamp,
   # lambdas = lambdas, hsize = hsize, nsamp = nsamp, s1 = s1, csteps = ncsteps, nfold = nfold, para = para, ncores = ncores,
   # tol = tol, scal = scal, seed = seed
   
-  alpha <- alphas[1] # Allocating first alphas value (?)
-  lambda <- lambdas[1] # Allocating first lambdas value (?)
+  # Allocating STARTING alpha,lambda combination
+  alpha <- alphas[1] # Allocating first alphas value (will be the SMALLEST)
+  lambda <- lambdas[1] # Allocating first lambdas value (will be the LARGEST!)
   
+  # Allocating residuals and index ARRAYS!
   residall <- array(NA, dim = c(n, length(lambdas), length(alphas))) # Array of n x #lambdas x #alphas
-  indexall <- array(NA, dim = c(h, length(lambdas), length(alphas))) # Same but now for h!
+  indexall <- array(NA, dim = c(h, length(lambdas), length(alphas))) # Same but now for h: h x #lambdas x #alphas
   
-  ## Beginning C step
-  # If only a single lambda and alpha value were given (must be user specified in that case)
+  #### Beginning C-step
+  ### Case: singla alpha-lambda combination (must be user specified in that case)
   if (length(alphas) == 1 & length(lambdas) == 1) {
-    beginning.Cstep.with500 <- beginningCstep(x, 
-                                              y, 
-                                              family, 
-                                              h, 
-                                              hsize, 
-                                              alpha, 
-                                              lambda, 
-                                              nsamp, 
-                                              s1, 
-                                              ncores, 
-                                              csteps, 
-                                              tol, 
-                                              scal, 
-                                              para, 
-                                              seed)
+    beginning.Cstep.with500 <- enetLTS:::beginningCstep(x = x, 
+                                                        y = y, 
+                                                        family = family, 
+                                                        h = h, 
+                                                        hsize = hsize, 
+                                                        alpha = alpha, 
+                                                        lambda = lambda, 
+                                                        nsamp = nsamp, 
+                                                        s1 = s1, 
+                                                        ncores = ncores, 
+                                                        csteps = csteps, 
+                                                        tol = tol, 
+                                                        scal = scal, 
+                                                        para = para, 
+                                                        seed = seed)
     residall[, 1, 1] <- beginning.Cstep.with500$resid
     indexall[, 1, 1] <- beginning.Cstep.with500$index
     return(list(residall = residall, indexall = indexall))
-  }
-  else {
-    beginning.Cstep.with500 <- beginningCstep(x, 
-                                              y, 
-                                              family, 
-                                              h, 
-                                              hsize, 
-                                              alpha, 
-                                              lambda, 
-                                              nsamp, 
-                                              s1, 
-                                              ncores, 
-                                              csteps, 
-                                              tol, 
-                                              scal, 
-                                              para, 
-                                              seed)
-    index1_al <- beginning.Cstep.with500$index
-    index1_la <- beginning.Cstep.with500$index
-    resid1_al <- beginning.Cstep.with500$resid
-    resid1_la <- beginning.Cstep.with500$resid
+    
+    ### Case: multiple alpha-lamda combinations
+  } else { 
+    beginning.Cstep.with500 <- enetLTS:::beginningCstep(x = x, 
+                                                        y = y, 
+                                                        family = family, 
+                                                        h = h, 
+                                                        hsize = hsize, 
+                                                        alpha = alpha, 
+                                                        lambda = lambda, 
+                                                        nsamp = nsamp, 
+                                                        s1 = s1, 
+                                                        ncores = ncores, 
+                                                        csteps = csteps, 
+                                                        tol = tol, 
+                                                        scal = scal, 
+                                                        para = para, 
+                                                        seed = seed)
+    # Gathering results (initiation)
+    index1_al <- beginning.Cstep.with500$index # h indices for alphas
+    index1_la <- beginning.Cstep.with500$index # h indices for lambdas
+    resid1_al <- beginning.Cstep.with500$resid # n residuals for alphas
+    resid1_la <- beginning.Cstep.with500$resid # n residuals for lambdas
+    
+    ### ITERATIVELY (WARM) STARTING h-SUBSET SEARCH FOR DIFFERENT LAMBDA/ALPHA COMBINATIONS (This structure is quite complex)
+    ## For each alpha
     for (al in 1:length(alphas)) {
-      alpha <- alphas[al]
-      index1_la <- index1_al
-      resid1_la <- resid1_al
+      alpha <- alphas[al] # Get current alpha value
+      index1_la <- index1_al # Some redefining because for each new alpha, one "starts over" in some way
+      resid1_la <- resid1_al # Some redefining because for each new alpha, one "starts over" in some way
+      # Case: single lambda (maybe skip)
       if (length(lambdas) == 1) {
-        newindex_la <- index1_la
+        newindex_la <- index1_la 
         objbest <- tol
-        cstep.mod <- CStep(x, y, family, newindex_la, 
-                           h, hsize, alpha, lambda/h, scal)
+        cstep.mod <- CStep(x = x, 
+                           y = y, 
+                           family = family, 
+                           indx = newindex_la,
+                           h = h,
+                           hsize = hsize,
+                           alpha = alpha,
+                           lambda = lambda/h, 
+                           scal = scal)
+        
         countloop <- 0
-        while ((cstep.mod$object > objbest) & (countloop < 
-                                               csteps)) {
-          countloop <- countloop + 1
-          objbest <- cstep.mod$object
-          newindex_la <- cstep.mod$index
-          newresid_la <- cstep.mod$residu
-          cstep.mod <- CStep(x, y, family, newindex_la, 
-                             h, hsize, alpha, lambda/h, scal)
+        # while loop for running C-steps
+        while ((cstep.mod$object > objbest) & (countloop < csteps)) {
+          countloop <- countloop + 1 # Keeping track of loops
+          objbest <- cstep.mod$object # Objective function value
+          newindex_la <- cstep.mod$index # h indices
+          newresid_la <- cstep.mod$residu # n residuals
+          cstep.mod <- CStep(x = x, 
+                             y = y, 
+                             family = family, 
+                             indx = newindex_la, 
+                             h = h, 
+                             hsize = hsize, 
+                             aplha = alpha, 
+                             lambda = lambda/h, 
+                             scal = scal)
+          
           index1_la <- newindex_la
-        }
-        indexall[, , al] <- newindex_la
-        residall[, , al] <- newresid_la
-      }
-      else {
-        IndexMatrix <- matrix(NA, nrow = h, ncol = (length(lambdas) - 
-                                                      1))
-        ResidMatrix <- matrix(NA, nrow = n, ncol = (length(lambdas) - 
-                                                      1))
-        for (la in 1:(length(lambdas) - 1)) {
-          lambda <- lambdas[la + 1]
-          newindex_la <- index1_la
+        } # End of while-loop
+        
+        indexall[, , al] <- newindex_la # Save in indexall for the current alpha
+        residall[, , al] <- newresid_la # Save in the residuals for the current alpha
+      
+      ## Case: multiple lambdas (default, often) 
+      } else {
+        # Constructing matrices, rows = h, columns is lambdas 
+        IndexMatrix <- matrix(NA, nrow = h, ncol = (length(lambdas) -  1)) # lambda - 1 because the first lambda value (default: lambda0) was used for the warm start already
+        ResidMatrix <- matrix(NA, nrow = n, ncol = (length(lambdas) -  1)) # lambda - 1 because the first lambda value (default: lambda0) was used for the warm start already
+        
+        # For each lambda
+        for (la in 1:(length(lambdas) - 1)) { # (Alternatively, and clearer: for(la in 2:length(lambda))) 
+          lambda <- lambdas[la + 1] # Extracting lambda to use for this loop
+          newindex_la <- index1_la # Using the last arrived-upon h observation indices
           objbest <- tol
-          cstep.mod <- CStep(x, y, family, newindex_la, 
-                             h, hsize, alpha, lambda/h, scal)
-          countloop <- 0
-          while ((cstep.mod$object > objbest) & (countloop < 
-                                                 csteps)) {
+          
+          # Running a single C-step 
+          cstep.mod <- CStep(x = x, 
+                             y = y, 
+                             family = family, 
+                             indx = newindex_la, 
+                             h = h , 
+                             hsize = hsize, 
+                             alpha = alpha, 
+                             lambda = lambda/h, 
+                             scal = scal)
+          # Note: the fact that a single C-step is done here, probably just to be sure that at least one is done (?)
+          
+          # Running (potentially) many C-steps
+          countloop <- 0 # Initiating the loop counter
+          while ((cstep.mod$object > objbest) & (countloop <  csteps)) {
             countloop <- countloop + 1
-            objbest <- cstep.mod$object
-            newindex_la <- cstep.mod$index
-            newresid_la <- cstep.mod$residu
-            cstep.mod <- CStep(x, y, family, newindex_la, 
-                               h, hsize, alpha, lambda/h, scal)
-            index1_la <- newindex_la
-          }
-          IndexMatrix[, la] <- newindex_la
-          ResidMatrix[, la] <- newresid_la
+            objbest <- cstep.mod$object # Saving objective function value from the LAST run 
+            newindex_la <- cstep.mod$index # Saving h observation indices for this lambda from the LAST run (Because they (POTENTIALLY) changed as a result from the Cstep!)
+            newresid_la <- cstep.mod$residu # Saving n residuals from this lambda from the LAST run ...
+            # Note: for the first run these are the results from the single run above ...
+            
+            # Running another C-Step
+            cstep.mod <- CStep(x = x, 
+                               y = y, 
+                               family = family, 
+                               indx = newindex_la, 
+                               h = h, 
+                               hsize = hsize, 
+                               alpha = alpha, 
+                               lambda = lambda/h, 
+                               scal = scal)
+            index1_la <- newindex_la # This makes sure that the last C-step result will be used for the following lambda!
+          } # End of while-loop
+          
+          # Saving the results after the many C-Steps
+          IndexMatrix[, la] <- newindex_la # The result is also assigned  (after the while-loop) as the final h subset for that lambda
+          ResidMatrix[, la] <- newresid_la # Same for the n residuals
         }
-        lambda <- lambdas[1]
-        newindex_al <- index1_al
+        # For the first lambda (Don't fully understand why another series of C-steps is done, but in any case, doesn't do any harm!)
+        lambda <- lambdas[1] # First lambdas (often lambda_0)
+        newindex_al <- index1_al # Why with the index from the last one, this is kind of weird... (?)
         objbest <- tol
-        cstep.mod <- CStep(x, y, family, newindex_al, 
-                           h, hsize, alpha, lambda/h, scal)
+        cstep.mod <- CStep(x = x, 
+                           y = y, 
+                           family = family, 
+                           indx = newindex_al, 
+                           h = h, 
+                           hsize = hsize, 
+                           alpha = alpha, 
+                           lambda = lambda/h, 
+                           scal = scal)
         countloop <- 0
-        while ((cstep.mod$object > objbest) & (countloop < 
-                                               csteps)) {
+        while ((cstep.mod$object > objbest) & (countloop < csteps)) {
           countloop <- countloop + 1
           objbest <- cstep.mod$object
           newindex_al <- cstep.mod$index
           newresid_al <- cstep.mod$residu
-          cstep.mod <- CStep(x, y, family, newindex_al, 
-                             h, hsize, alpha, lambda/h, scal)
+          cstep.mod <- CStep(x = x, 
+                             y = y, 
+                             family = family, 
+                             indx = newindex_al, 
+                             h = h, 
+                             hsize = hsize, 
+                             alpha = alpha, 
+                             lambda = lambda/h, 
+                             scal = scal)
           index1_al <- newindex_al
         }
+        # Combining the results from the first lambda with the other lambdas
         IndexMatrix <- cbind(newindex_al, IndexMatrix)
         ResidMatrix <- cbind(newresid_al, ResidMatrix)
         indexall[, , al] <- IndexMatrix
@@ -126,5 +190,6 @@ warmCsteps <- function(x, y, h, n, p, family, alphas, lambdas, hsize, nsamp,
       }
     }
   }
+  # OUTPUT
   return(list(indexall = indexall, residall = residall))
 }
