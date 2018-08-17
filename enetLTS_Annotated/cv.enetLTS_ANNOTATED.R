@@ -1,28 +1,55 @@
-### IN THIS FILE I WILL ANNOTATE THE enetLTS FUNCTION ###
+##### THIS FILE CONTAINS AN ANNOTATED COPY OF enetLTS::cv.enetLTS() (version 0.1.0) #####
 
-# This function handles the cross validation scheme for the enetLTS fitting procedure:
-cv.enetLTS_ANNOTATED <- function (index = NULL, xx, yy, family, h, alphas, lambdas, nfold, 
-                        repl, ncores, plot = TRUE) 
+cv.enetLTS_ANNOTATED <- function(index = NULL, xx, yy, family, h, alphas, lambdas, nfold, 
+                                 repl, ncores, plot = TRUE) 
 {
   
-  ## INPUTS:
-  # index: ?
-  # xx: ?
-  # yy: ?
-  # family: the family argument
-  # h
-  # alphas:
-  # lambdas:
+  ### GOAL: Finding the optimal alpha-lambda combination using cross validation and ...
+  # giving a plot of the performance for the alpha-lambda combinations. Outside of...
+  # calc_evalCrit() and the plotting part at the end it basically only just finds the minimum
   
-  ## CALLED BY
+  ## INPUTS: 
+  # index: Array (h x length(lambdas) x length(alphas)).
+  # xx: Robustly normalized predictors.
+  # yy: Robustly centered outcome (for binomial response: no centering!)
+  # family: Response distribution, "binomial" or "gaussian".
+  # h: Sample size (e.g. 75) # Note: hsize is a fractional: e.g. n = 100, hsize = 0.75 then h = 75.
+  # alphas: A whole sequence (can be length =  1) of alphas, as constructed in enetLTS().
+  # lambdas: A whole sequence (can be length = 1) of lambdas, as constructed in enetLTS().
+  # nfold: Amount of folds for the cross-validation process.
+  # repl: Number specifying amount of replications, how many times to repeat the cross-validation process.
+  # ncores: Amount of cores, for parallel processing.
+  # plot: Logical denoting if the visual plot for performance should be given.
   
+  ## CALLED BY: enetLTS::enetLTS(), a single time for each time for 1 enetLTS() call.
   
-  ## Setting all loss functions to NULL:
-  # MNLL = Mean Negative Loglikelihood
-  # TMNLL = Trimmed (?) Mean Negative Loglikelihood
-  # RTMSPE = Trimmed (?) Mean Squared Prediction Error
-  # RMSPE = Root Mean Squared Prediction Error
+  ## OUTPUTS:
+  # evalCrit: Named matrix with values of all evaluation criteria for all lambda-alpha combinations
+  # minevalCrit: Minimum of the evaluation criterion
+  # indexbest: h Observation indices associated with minevalCrit
+  # lambdaopt: Lambda associated with minevalCrit
+  # alphaopt: Alpha associated with minevalCrit
+
+  ## OUTPUT USED BY: enetLTS::enetLTS()
+  
+  ## INNER WORKINGS: for each combination of alpha and lambda, enetLTS::calc_evalCrit() is called (lapply loop), ...
+  # and averaged over the replications, the optimal lambda and alpha are chosen based on the value of the evaluation criterion, ...
+  # such as the mean squared error or the robustified deviance (Bianco-Yohai) in the local variable "evalCrit". If plot == TRUE...
+  # a tile plot is given giving a visual representation of the performance.
+  
+  ## NOTES:
+  # 1. Indeed, the function is called cv.enetLTS() but the inner logic does not actually perform cross validation, this is done by the...
+  #    internally defined function calc_evalCrit(), which e.g. makes the folds and loop over them. I SPLIT OFF THIS FUNCTION! 
+  #    cv.handler.enetLTS()...
+  #    would be a more suitable name, with the calc_evalCrit() split-off. 
+  # 2. The plotting part should ideally be split-off as well.
+  
+  # Setting all loss functions to NULL (only come into play for plotting, see below!)
   MNLL <- TMNLL <- RTMSPE <- RMSPE <- NULL
+  # MNLL = Mean Negative Loglikelihood
+  # TMNLL = Trimmed Mean Negative Loglikelihood
+  # RTMSPE = Trimmed Mean Squared Prediction Error
+  # RMSPE = Root Mean Squared Prediction Error
   
   # Extracting sample information
   n <- nrow(xx) # Sample size
@@ -53,26 +80,33 @@ cv.enetLTS_ANNOTATED <- function (index = NULL, xx, yy, family, h, alphas, lambd
   # calc_evalCrit() function (This was defined here but I SPLIT IT OFF!)
   
   # Multicore applying calc_evalCrit() over ROW NUMBER of combis_ind
-  temp_result <- mclapply(1:nrow(combis_ind), FUN = calc_evalCrit, # calc_evalCrit now defined in separate .R file
-                          combis_ind = combis_ind, 
-                          alphas = alphas, 
-                          lambdas = lambdas, 
-                          index = index, 
-                          xx = xx, 
-                          yy = yy, 
-                          nfold = nfold, 
-                          repl = repl, 
-                          mc.cores = ncores, 
-                          mc.allow.recursive = FALSE)
+  temp_result <- parallel:::mclapply(1:nrow(combis_ind), FUN = calc_evalCrit, # calc_evalCrit now defined in separate .R file
+                                     combis_ind = combis_ind, 
+                                     alphas = alphas, 
+                                     lambdas = lambdas, 
+                                     index = index, 
+                                     xx = xx, 
+                                     yy = yy, 
+                                     nfold = nfold, 
+                                     repl = repl, 
+                                     mc.cores = ncores, 
+                                     mc.allow.recursive = FALSE)
   # So at the end of mclapply we have passed all alpha-lambda combinations but at each individual loop of the mclapply only one single
   # row (i.e. one single alpha-lambda) combination is passed through! However temp_Reults
+  
+  ## Restructuring results
+  # Temporary matrix
   temp_result2 <- matrix(unlist(temp_result), 
-                         ncol = repl + 2, # +2 Because in col 1 and 2 we save the lambda and alpha values
+                         ncol = repl + 2, # +2 Because in col 1 and 2 we save the lambda and alpha INDICES
                          byrow = TRUE)
-  for (k in 1:nrow(temp_result2)) { # What are the rows what are the columns?
-    i <- temp_result2[k, 1] # ??
-    j <- temp_result2[k, 2] # ??
-    evalCrit[i, j] <- mean(temp_result2[k, 3:(repl + 2)]) # ??
+  # Contains evalcrits: nrows = unique alpha-lambda combinations, ncols = amount of replications + 2 for INDICES of alpha-lambda
+  
+  # Simplifying: Mean (over repl)
+  for (k in 1:nrow(temp_result2)) {
+    i <- temp_result2[k, 1] # Getting lambda
+    j <- temp_result2[k, 2] # Getting alpha
+    
+    evalCrit[i, j] <- mean(temp_result2[k, 3:(repl + 2)]) # Getting the means over the replications (first 2 cols are indices)
   }
   
   ## EXTRACTING OPTIMAL SOLUTION (wrt. tuning params)
@@ -84,10 +118,13 @@ cv.enetLTS_ANNOTATED <- function (index = NULL, xx, yy, family, h, alphas, lambd
   lambdas <- round(lambdas, 4)
   lambda <- lambdas[optind[1]]
   
+  
+  ############################################### PLOTTING PART ###############################################################
+  # Would be more suitable to have this in a separate function...
+  
   ### PLOTTING PERFORMANCE GRID
   if (plot == TRUE) {
-    print(paste("optimal model: lambda =", lambda, "alpha =", 
-                alpha))
+    print(paste("optimal model: lambda =", lambda, "alpha =", alpha))
     
     # Defining colour palette to be used for the tile fillings:
     lenCol <- length(alphas) * length(lambdas) # Amount of colours
@@ -171,7 +208,9 @@ cv.enetLTS_ANNOTATED <- function (index = NULL, xx, yy, family, h, alphas, lambd
     print(mspeplot, vp = grid:::viewport(layout.pos.row = 1, layout.pos.col = 1))
   }
   
-  # Return values
+  ############################################### END: PLOTTING PART ###############################################################
+  
+  # OUTPUT
   return(list(evalCrit = evalCrit, 
               minevalCrit = minevalCrit, 
               indexbest = indexbest, 
