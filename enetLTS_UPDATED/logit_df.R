@@ -1,11 +1,16 @@
 logit_df <- function(model, X, alpha = NULL, intercept){
-  ### logit_df() FUNCTION: calculating the degrees of freedom in a potentially penalized regression 
+  ### logit_df() FUNCTION: calculating the effective degrees of freedom in a potentially penalized regression using hat matrices
   
   ## INPUTS
   # model: A glmnet() model
   # X: the data matrix WITHOUT INTERCEPT
   # alpha: Alpha value used to fit the model (single value)
   # intercept: If intercept was used to fit the logit-glmnet model: TRUE
+  
+  ## OUTPUT
+  # df: the effective degrees of freedom for the logit model
+  
+  
   
   ## NOTES
   # 1. lamba value can be extracted from glmnet model, alpha cannot in most circumstances
@@ -23,16 +28,20 @@ logit_df <- function(model, X, alpha = NULL, intercept){
     }
   }
   
-  # Adding intercept to X-matrix if necessary
+  # If the model was estimated using an intercept, the matrix calculations need to have a 1 in the column as well!
   if(intercept == TRUE){
-    stop("Currently not supported yet for intercept = TRUE")
-    #X <- cbind(1, X)
-    #colnames(X)[1] <- "X0" # Needs to be colnames because matrix!
+    X <- cbind(1, X)
+    colnames(X)[1] <- "X0" # Needs to be colnames because matrix!
   }
 
   # Extracting fitted beta (coefficients)
-  coefs <- as.matrix(coefficients(model))[-1,] # EXCLUDING intercept, as.matrix() to get rid of sparse matrix formatting
-  # Alternatively to get rid of intercept: model$beta
+  if(intercept == TRUE){
+    coefs <- as.matrix(coefficients(model))
+  }
+  if(intercept == FALSE){
+    coefs <- as.matrix(coefficients(model))[-1, ] # EXCLUDING intercept, as.matrix() to get rid of sparse matrix formatting
+    # Alternatively to get rid of intercept: model$beta
+  }
 
   # Extracting the active subset
   active_set <- which(coefs != 0) # Nonzero coefs INDICES (Note they start from 1, not 0)
