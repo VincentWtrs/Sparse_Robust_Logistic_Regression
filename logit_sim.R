@@ -159,7 +159,6 @@ logit_sim <- function(beta,
       model_list[[r]] <- enetLTS:::enetLTS(xx = X, # Need to load it like this, weird
                                  yy = y,
                                  family = "binomial",
-                                 alphas = 1, # Other values are difficult for df calculations
                                  hsize = 0.75, # .75 is default
                                  nfold = 1, # no cv for IC
                                  repl = 1, # no cv for IC
