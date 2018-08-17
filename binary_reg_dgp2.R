@@ -7,7 +7,7 @@ binary_reg_dgp2 <- function(n, p, p_a, beta, sigma_in = NULL, dirty = 0, type = 
   # dirty: proportion (decimals) of contamination
   ## NOTE: INTERCEPT ASSUMED TO BE 1!
   
-  # QUID: setting seed?
+  # setting seed? Stil not 100% sure on this, it will allow us to fully reconstruct based on the seed...
   
   p_b <- p - p_a # Dimensionality of the uninformative part
   
@@ -143,7 +143,6 @@ binary_reg_dgp2 <- function(n, p, p_a, beta, sigma_in = NULL, dirty = 0, type = 
     
     ## Combining both
     X <- cbind(X_a, X_b)
-    
   }
   
   # OUTPUT
