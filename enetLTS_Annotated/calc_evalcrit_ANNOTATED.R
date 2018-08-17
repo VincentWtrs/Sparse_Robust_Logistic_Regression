@@ -19,16 +19,14 @@ calc_evalCrit <- function(rowind, combis_ind, alphas, lambdas, index, xx, yy, nf
   alpha <- alphas[j] # Same, but for alpha
   
   # Printing message which values are being used now
-  print(paste("cross-validating for alpha: ", alpha, " and lambda :", 
-              lambda), sep = "")
+  print(paste("cross-validating for alpha: ", alpha, " and lambda :", lambda), sep = "")
   
   # index: comes from the warmCsteps functions (see lvl 1)
   if (is.null(index)) { # So this should not be the case
     x <- xx
     y <- yy
-  }
-  # Indeed, indexes (amount = h) should be received from warmCstep(), i.e. getting the indices in set H of size h (?)
-  else {
+    # Indeed, indexes (amount = h) should be received from warmCstep(), i.e. getting the indices in set H of size h (?)
+  } else {
     x <- xx[index[, i, j], ] # Gives one dataset of size h (X)
     y <- yy[index[, i, j]]  # Same (y)
   }
@@ -42,19 +40,19 @@ calc_evalCrit <- function(rowind, combis_ind, alphas, lambdas, index, xx, yy, nf
     ## For Binomial - logistic
     if (family == "binomial") {
       # Folds for "0" outcomes (Need to have similar 0/1 balance)
-      folds0 <- cvFolds(length(y[y == 0]), # cvTools::cvFolds
-                        K = nfold,  
-                        R = 1, # 1 replication, the replications are done manually in the loop that is defined in this function
-                        type = "random") # Default: random folds
+      folds0 <- cvTools:::cvFolds(length(y[y == 0]), # cvTools::cvFolds
+                                  K = nfold,  
+                                  R = 1, # 1 replication, the replications are done manually in the loop that is defined in this function
+                                  type = "random") # Default: random folds
       # outcome of cvFolds(): $subset an integer vector (matrix with ncols = amount of reps, here = 1) containing a permutation of indices
       # $which = an integer vector stating to which fold each permuted observation belongs (so here generally filled with integers from 1 to 5 (K))
       # So $subset is basically a permutation (shuffled) of the indices
-  
+      
       # Folds for "1" outcomes
-      folds1 <- cvFolds(length(y[y == 1]), 
-                        K = nfold, 
-                        R = 1, 
-                        type = "random")
+      folds1 <- cvTools:::cvFolds(length(y[y == 1]), 
+                                  K = nfold, 
+                                  R = 1, 
+                                  type = "random")
       # Initiating losses for 0/1 seperately
       loss0 <- rep(NA, sum(y == 0))
       loss1 <- rep(NA, sum(y == 1))
@@ -62,12 +60,11 @@ calc_evalCrit <- function(rowind, combis_ind, alphas, lambdas, index, xx, yy, nf
     
     ## For Gaussian (Linear models)
     else if (family == "gaussian") {
-      folds <- cvFolds(length(y), K = nfold, R = 1, 
-                       type = "random")
+      folds <- cvTools:::cvFolds(length(y), K = nfold, R = 1, type = "random")
       loss <- rep(NA, nrow(x))
     }
     
-    ### FOLDS LEVEL (whats actually happening here? are the folds passed on?)
+    ### FOLDS LEVEL
     for (f in 1:nfold) {
       
       ## For Binomial - Logistic
@@ -110,10 +107,9 @@ calc_evalCrit <- function(rowind, combis_ind, alphas, lambdas, index, xx, yy, nf
                            ytrain, 
                            family, 
                            alpha = alpha, 
-                           #lambda = lambda/hpen, # The lambda is scaled! (Probably different definition ?) #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-                           # BETTER WOULD BE TO NOT SPECIFY ANY LAMBDA AND THEN GET THE COEFFICIENTS WITH THE LAMBDA WANTED
+                           lambda = lambda/hpen, # The lambda is scaled! (Probably different definition ?) #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
                            standardize = FALSE, 
-                           intercept = FALSE)
+                           intercept = FALS)
         # LOOKS LIKE THEY DON'T USE THE LAMBDA WARM STARTS BECAUSE IT'S CALLED AGAIN EACH TIME
       }, error = function(err) { # Defining error function or so
         error <- TRUE
@@ -121,8 +117,7 @@ calc_evalCrit <- function(rowind, combis_ind, alphas, lambdas, index, xx, yy, nf
       })
       # When error is occuring the result is a LOGICAL value (?)
       if (is.logical(res)) {
-        print(paste("CV broke off for alpha=", alpha, 
-                    "and lambda=", lambda))
+        print(paste("CV broke off for alpha=", alpha, "and lambda=", lambda))
       }
       else {
         trainmod <- res
@@ -133,16 +128,15 @@ calc_evalCrit <- function(rowind, combis_ind, alphas, lambdas, index, xx, yy, nf
           # NOTE: trainmod$beta is a "dgCmatrix" object of size nobs (amount of obs) x nvars (amount of predictors)
           loss0[folds0$which == f] <- -(ytest0 * xtest0 %*% matrix(trainmod$beta)) + log(1 + exp(xtest0 %*% matrix(trainmod$beta))) # ORIGINAL
           loss1[folds1$which == f] <- -(ytest1 * xtest1 %*% matrix(trainmod$beta)) + log(1 + exp(xtest1 %*% matrix(trainmod$beta))) # ORIGINAL
-
           # NOTE2: because the glmnet model is fitted with a single alpha-lambda combination, the dgCmatrix simplifies to an ordinary one
         }
         
         # Gaussian Loss:
         else if (family == "gaussian") 
           # Loss is also negative loglik = squared loss y - y_hat (y_hat = X*beta_hat)
-          #loss[folds$which == f] <- ytest - xtest %*% matrix(trainmod$beta) # ORIGINAL
-          loss[folds$which == f] <- ytest - xtest %*% matrix(coef(traindmod, s = lamda/h)) # UPDATED
-          
+          loss[folds$which == f] <- ytest - xtest %*% matrix(trainmod$beta) # ORIGINAL
+          #loss[folds$which == f] <- ytest - xtest %*% matrix(coef(traindmod, s = lamda/h)) # Potential improvement (???)
+        
       }
     } # END OF FOLD LEVEL
     
