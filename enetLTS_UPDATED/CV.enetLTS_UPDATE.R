@@ -38,6 +38,14 @@ cv.enetLTS_UPDATE <- function (index = NULL, xx, yy, family, h, alphas, lambdas,
   temp_result2 <- matrix(unlist(temp_result), 
                          ncol = repl + 2, # + 2
                          byrow = TRUE)
+  # # NEW:
+  # if(percentile_method == TRUE){
+  #   for (k in 1:nrow(temp_result2)) {
+  #     i <- temp_result2[k, 1]
+  #     j <- temp_result2[k, 2]
+  #     evalCrit[i, j] <- quantile(temp_result2[k, 3:(repl + 2)])
+  #   }
+  # }
   
   for (k in 1:nrow(temp_result2)) {
     i <- temp_result2[k, 1]
