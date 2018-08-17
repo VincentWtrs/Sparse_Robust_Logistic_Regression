@@ -62,6 +62,8 @@ enetLTS_UPDATE <- function (xx, yy, family = c("gaussian", "binomial"), alphas,
   sc <- enetLTS:::prepara(xx, yy, family, robu = 1)
   x <- sc$xnor
   y <- sc$ycen
+  
+  ## C-STEPS
   WarmCstepresults <- enetLTS:::warmCsteps(x = x, 
                                            y = y, 
                                            h = h, 
@@ -88,26 +90,32 @@ enetLTS_UPDATE <- function (xx, yy, family = c("gaussian", "binomial"), alphas,
     indexbest <- drop(indexall)
     alphabest <- alphas
     lambdabest <- lambdas
-    
-  } if((length(alphas) > 1) | (length(lambdas) > 1)) { # NEW: added more specific split here
+  } 
+  
+  ## CROSS VALIDATION
+  if((length(alphas) > 1) | (length(lambdas) > 1)) { # NEW: added more specific split here
     if(ic == FALSE){ # NEW: if no IC type is supplied than CV will be used
-    # NEW: Changed from cv.enetLTS to cv.enetLTS_UPDATE ## NEW(2): got IC calculations out of cv.enetLTS_UPDATE
-    CVresults <- cv.enetLTS_UPDATE(indexall, 
-                                   x, 
-                                   y, 
-                                   family, 
-                                   h, 
-                                   alphas, 
-                                   lambdas, 
-                                   nfold, 
-                                   repl, 
-                                   ncores, 
-                                   plot, 
-                                   ic_type) # NEW: ic_type ## NEW(2): remove ic_type
-    indexbest <- CVresults$indexbest
-    alphabest <- CVresults$alphaopt
-    lambdabest <- CVresults$lambdaopt
-    evalCritCV <- CVresults$evalCrit
+      if(family = "gaussian"){
+        stop("Information criterion approach not yet supported for Gaussian family") # Some error throwing
+      }
+      # NEW: Changed from cv.enetLTS to cv.enetLTS_UPDATE ## NEW(2): got IC calculations out of cv.enetLTS_UPDATE
+      CVresults <- cv.enetLTS_UPDATE(indexall, 
+                                     x, 
+                                     y, 
+                                     family, 
+                                     h, 
+                                     alphas, 
+                                     lambdas, 
+                                     nfold, 
+                                     repl, 
+                                     ncores, 
+                                     plot, 
+                                     ic_type) # NEW: ic_type ## NEW(2): remove ic_type
+      # Gathering results from CV
+      indexbest <- CVresults$indexbest
+      alphabest <- CVresults$alphaopt
+      lambdabest <- CVresults$lambdaopt
+      evalCritCV <- CVresults$evalCrit
     }
     if(ic == TRUE){ # NEW: IC CALCULATION HAPPENS OUTSIDE OF cv.enetLTS_UPDATE
       print("Information criterion method: nfold and repl ignored and set to 1")
@@ -120,10 +128,11 @@ enetLTS_UPDATE <- function (xx, yy, family = c("gaussian", "binomial"), alphas,
                               lambdas,
                               plot,
                               ic_type)
+      # Gathering results from IC
       indexbest <- ICresults$indexbest
       alphabest <- ICresults$alphaopt
       lambdabest <- ICresults$lambda$opt
-      evalCritCV <- ICresults$evalCrit # We just keep the name for convenience
+      evalCritCV <- ICresults$evalCrit # We just keep the name for convenience (TO DO)
       }
   }
   if (scal) {
