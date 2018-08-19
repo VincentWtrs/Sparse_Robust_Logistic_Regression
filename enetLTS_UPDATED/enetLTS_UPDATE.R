@@ -2,7 +2,9 @@ enetLTS_UPDATE <- function (xx, yy, family = c("gaussian", "binomial"), alphas,
                             lambdas, lambdaw, hsize = 0.75, intercept = TRUE, nsamp = 500, 
                             s1 = 10, nCsteps = 20, nfold = 5, seed = NULL, plot = TRUE, 
                             repl = 5, para = TRUE, ncores = 1, del = 0.0125, tol = -1e+06, 
-                            scal = TRUE, type = c("response", "class"), ic_type = NULL) # NEW: ic_type test test
+                            scal = TRUE, type = c("response", "class"), ic_type = NULL, type_lambdaw) 
+  # NEW: ic_type test test
+  # NEW: type_lambdaw: choosing lambda.min or lambda.1se for the reweighting step.
 {
   
   #### UPDATED VERSION ###
@@ -149,8 +151,7 @@ enetLTS_UPDATE <- function (xx, yy, family = c("gaussian", "binomial"), alphas,
     if (family == "binomial") {
       a00 <- if (intercept == F) 
         0
-      else drop(fit$a0 - as.vector(as.matrix(fit$beta)) %*% 
-                  (scl$mux/scl$sigx))
+      else drop(fit$a0 - as.vector(as.matrix(fit$beta)) %*% (scl$mux/scl$sigx))
       raw.coefficients <- drop(as.matrix(fit$beta)/scl$sigx)
       raw.residuals <- -(ys * xs %*% as.matrix(fit$beta)) + 
         log(1 + exp(xs %*% as.matrix(fit$beta)))
@@ -259,24 +260,37 @@ enetLTS_UPDATE <- function (xx, yy, family = c("gaussian", "binomial"), alphas,
         lambdaw <- lambdaw
       }
       else if (!missing(lambdaw) & length(lambdaw) > 1) {
-        lambdaw <- cv.glmnet(x[which(raw.wt == 1), ], 
-                             y[which(raw.wt == 1)], family = family, lambda = lambdaw, 
-                             nfolds = 5, alpha = alphabest, standardize = FALSE, 
-                             intercept = FALSE, type.measure = "mse")$lambda.min
+        cvmodel_lambdaw <- cv.glmnet(x[which(raw.wt == 1), ],  # NEW: saved model first, then extract the lambda we want
+                             y[which(raw.wt == 1)], 
+                             family = family, 
+                             lambda = lambdaw, 
+                             nfolds = 5, 
+                             alpha = alphabest, 
+                             standardize = FALSE, 
+                             intercept = FALSE, 
+                             type.measure = "deviance") # NEW: changed type.measure = "mse" to type.meaure = "deviance" 
+        # NEW: removed cv.glmnet(...)$lambda.min 
+        if(type_lambdaw == "min"){
+          lambdaw <- cvmodel_lambdaw$lambda.min
+        }
+        if(type_lambdaw == "1se"){
+          lambdaw <- cvmodel_lambdaw$lambda.1se
+        }
       }
-      fitw <- glmnet(x[which(raw.wt == 1), ], y[which(raw.wt == 
-                                                        1)], family, alpha = alphabest, lambda = lambdaw, 
-                     standardize = FALSE, intercept = FALSE)
+      fitw <- glmnet(x[which(raw.wt == 1), ], 
+                     y[which(raw.wt == 1)], 
+                     family, 
+                     alpha = alphabest, 
+                     lambda = lambdaw, 
+                     standardize = FALSE, 
+                     intercept = FALSE)
       a0 <- if (intercept == F) 
         0
-      else drop(fitw$a0 - as.vector(as.matrix(fitw$beta)) %*% 
-                  (sc$mux/sc$sigx))
+      else drop(fitw$a0 - as.vector(as.matrix(fitw$beta)) %*% (sc$mux/sc$sigx))
       coefficients <- drop(as.matrix(fitw$beta)/sc$sigx)
       wgt <- enetLTS:::weight.binomial(xx, yy, c(a0, coefficients), 
                              intercept, del)
-      reweighted.residuals <- -(yy * cbind(1, xx) %*% c(a0, 
-                                                        coefficients)) + log(1 + exp(cbind(1, xx) %*% 
-                                                                                       c(a0, coefficients)))
+      reweighted.residuals <- -(yy * cbind(1, xx) %*% c(a0, coefficients)) + log(1 + exp(cbind(1, xx) %*% c(a0, coefficients)))
     }
     else if (family == "gaussian") {
       a00 <- if (intercept == F) 
@@ -303,8 +317,7 @@ enetLTS_UPDATE <- function (xx, yy, family = c("gaussian", "binomial"), alphas,
                              nfolds = 5, alpha = alphabest, standardize = FALSE, 
                              intercept = FALSE, type.measure = "mse")$lambda.min
       }
-      fitw <- glmnet(x[which(raw.wt == 1), ], y[which(raw.wt == 
-                                                        1)], family, alpha = alphabest, lambda = lambdaw, 
+      fitw <- glmnet(x[which(raw.wt == 1), ], y[which(raw.wt == 1)], family, alpha = alphabest, lambda = lambdaw, 
                      standardize = FALSE, intercept = FALSE)
       a0 <- if (intercept == F) 
         0
