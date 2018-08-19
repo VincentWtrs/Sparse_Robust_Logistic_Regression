@@ -19,6 +19,7 @@ knitr::opts_chunk$set(echo = TRUE)
 #install.packages("robust")
 #install.packages("MatrixModels")
 #install.packages("glmnet")
+#install.packages("caret") # tuning alpha for glmnet2 in logit_sim
 ```
 
 ```{r loading_libraries}
@@ -29,6 +30,7 @@ library(MASS)
 library(robust)
 library(MatrixModels)
 library(glmnet)
+library(caret)
 ```
 
 Sourcing functions defined in separate .R files.
@@ -876,7 +878,6 @@ colnames(loss_mean_comparison3) <- c("logit", "lasso", "ridge", "a .75", "enetLT
 loss_mean_comparison3
 
 
-
 # enetLTS: User supplied alpha/lambdas
 enetLTS2 <- enetLTS(xx = train1_dirty[, -1],
                     yy = train1_dirty[, 1],
@@ -902,4 +903,776 @@ enetLTS3
 
 What about the trivial Most Frequent Class (MFC) classifier. However, this classifier does not produce predicted probabilities, just classes, hence the cross entropy loss cannot be calculated. But the misclassification loss (0-1) loss can be calculated ofcourse.
 
-__TO DO__
+# Simulation Study
+
+Let's manually try some simulations:
+```{r}
+# Parameters
+p_a <- 5
+p_b <- 45
+beta <- c(rep(1, times = p_a), rep(0, times = p_b))
+p <- length(beta)
+runs <- 200
+seed <- 596442 # KU Leuven student nr.
+n <- 1000
+
+### Running simulations
+## Clean
+# Ordinary (glm) logit
+sim_glm1 <- logit_sim(beta = beta, 
+                  p = p,
+                  p_a = p_a,
+                  n = n,
+                  runs = runs,
+                  dirty = 0,
+                  dgp = "bernoulli",
+                  type = "glm",
+                  seed = seed)
+
+# LASSO
+sim_lasso1 <- logit_sim(beta = beta, 
+                         p = p,
+                         p_a = p_a,
+                         n = n,
+                         runs = runs,
+                         dirty = 0,
+                         dgp = "bernoulli",
+                         type = "glmnet1",
+                         seed = seed)
+
+# glmrob
+sim_glmrob1 <- logit_sim(beta = beta, 
+                         p = p,
+                         p_a = p_a,
+                         n = n,
+                         runs = runs,
+                         dirty = 0,
+                         dgp = "bernoulli",
+                         type = "glmrob",
+                         seed = seed)
+# enetLTS
+sim_enetLTS1 <- logit_sim(beta = beta, 
+                         p = p,
+                         p_a = p_a,
+                         n = n,
+                         runs = runs,
+                         dirty = 0,
+                         dgp = "bernoulli",
+                         type = "enetLTS",
+                         seed = seed)
+
+## Dirty
+# Ordinary (glm) logit
+sim_glm1 <- logit_sim(beta = beta, 
+                  p = p,
+                  p_a = p_a,
+                  n = n,
+                  runs = runs,
+                  dirty = 0.05,
+                  dgp = "bernoulli",
+                  type = "glm",
+                  seed = seed)
+
+```
+
+Automating it using lapply:
+```{r}
+# Parameters
+p_a <- 5
+p_b <- 45
+beta <- c(rep(1, times = p_a), rep(0, times = p_b))
+p <- length(beta)
+seed <- 596442 # KU Leuven student nr.
+n <- 1000
+dirty <- 0.05
+
+
+# Running simulation oevr different fitting types
+types <- c("glm", "glmnet1", "enetLTS")
+runs <- 10
+sim1 <- lapply(types, FUN = function(x) logit_sim(beta = beta, 
+                         p = p,
+                         p_a = p_a,
+                         n = n,
+                         runs = runs,
+                         dirty = dirty,
+                         dgp = "bernoulli",
+                         type = x,
+                         seed = seed))
+names(sim1) <- c("glm", "glmnet", "enetLTS")
+
+# Creating Summary
+sim1_summary <- logit_sim_summary(sim1)
+
+# Checking structure (names) of the sim1_summary
+names(sim1_summary)
+
+# Plotting some quantities
+boxplot(sim1_summary$loss, main = "Test Loss")
+boxplot(sim1_summary$misclass, main = "Misclassification Loss")
+boxplot(sim1_summary$fpr, main = "Coefficient False Positive Rate")
+boxplot(sim1_summary$tpr, main = "Coefficient True Positive Rate")
+boxplot(sim1_summary$prec, main = "Coefficient Avg. RMSE")
+
+  
+  
+# Using some other types (e.g. 2 glms)
+types <- c("glm", "glm")
+runs <- 10
+sim2 <- lapply(types, FUN = function(x) logit_sim(beta = beta, 
+                         p = p,
+                         p_a = p_a,
+                         n = n,
+                         runs = runs,
+                         dirty = dirty,
+                         dgp = "bernoulli",
+                         type = x,
+                         seed = seed))
+names(sim2) <- c("glm1", "glm2")
+sim2_summary <- logit_sim_summary(sim2)
+boxplot(sim2_summary$loss)
+# Note that this will give exactly the same results because the seed is initialized each time!
+```
+
+Checking the results in terms of loss.
+```{r}
+sapply(lapply(1:runs, FUN = function(x) sim1[["x"]]$loss$avg_loss))
+
+sim1[["glm"]]
+
+# Loss
+run_avg_loss <- data.frame(matrix(NA, nrow = runs, ncol = length(types)))
+names(run_avg_loss) <- types
+for(j in types){
+  for(i in 1:runs){
+    run_avg_loss[i, which(types == j)] <- sim1[[j]]$loss[[i]]$avg_loss
+  }
+}
+
+boxplot(run_avg_loss)
+
+# Misclass Loss
+run_avg_misclass <- data.frame(matrix(NA, nrow = runs, ncol = length(types)))
+names(run_avg_misclass) <- types
+for(j in types){
+  for(i in 1:runs){
+    run_avg_misclass[i, which(types == j)] <- mean(sim1[[j]]$misclass[[i]])
+  }
+}
+
+boxplot(run_avg_misclass)
+
+```
+
+We see a smaller difference in the (crossentropy) loss than in the misclassification one. Is there class imbalance maybe? This will be checked by printing the frequency tables of each test and training set associated with a run.
+
+```{r Checking class imbalance}
+# Training sets
+for(j in types){
+  for(i in 1:runs){
+   print(table(sim1[[j]]$train[[i]]$y))
+  }
+}
+# Looks rather balanced (40/60 ish)
+
+# Test sets
+for(j in types){
+  for(i in 1:runs){
+   print(table(sim1[[j]]$test[[i]]$y))
+  }
+}
+# Balanced as well (40/60 ish)
+```
+
+No, this is not the case, it's fairly balanced!
+
+Now, next up we need to define somekind of hit rate on the coefficients. Let's first start by exploring the structure of a single fit of e.g. glm or so. E.g. from logit6, which was fitted using the same beta as in sim1.
+```{r}
+# Getting true and fitted betas
+beta_temp <- c(1, beta) # including intercept
+logit6_coefs <- unname(coef(logit6))
+
+# Getting nonzeros (T/F logical vector)
+beta_temp_nonzero <- beta_temp != 0
+logit6_nonzero <- logit6_coefs != 0
+
+beta_temp_nonzero
+logit6_nonzero 
+
+# Checking equality (TRUE if both nonzero OR both zero)
+beta_temp_nonzero == logit6_nonzero
+
+# TPR: Seeing if it can retrieve all nonzeros correct: this means looking into first p_a+1 elements of fitted
+mean(logit6_coefs[1:(p_a + 1)] != 0) # TRUE POSITIVE RATE == 100%
+
+## FPR: the amount of beta_hats that are different from 0 but the true beta is 0, divided by amount of true ZEROs
+# True zeros: p_b (denominator)
+p_b
+
+# fitted betas that are nonzero while the true betas are 0
+logit6_coefs[(p_a + 1):p+1] != 0
+# counting by taking SUM
+sum(logit6_coefs[(p_a + 1):p+1] != 0)
+
+# Dividing to get FPR
+sum(logit6_coefs[(p_a + 1):p+1] != 0) / p_b # FPR = 100% (BAD!)
+
+## FNR: when fitted is zero and true fitted is nonzero divided by amount of true nonzero
+# true nonzero: p_a+1 (p_a plus intecept): denominator
+p_a + 1
+ 
+# numerator: amount of fitted coefs that is 0 while true beta !=0
+logit6_coefs[1:(p_a+1)] == 0
+# getting amount by taking sum (not length!)
+sum(logit6_coefs[1:(p_a+1)] == 0)
+
+# Dividing to get FNR
+sum(logit6_coefs[1:(p_a+1)] == 0) / (p_a + 1) # FNR = 0 (GOOD, but not really eye opening here)
+
+## Precisision
+sqrt(sum(logit6_coefs - c(1, beta))^2/(length(logit6_coefs)))
+
+```
+Need to keep the beta including and excluding zero into account.
+
+This is all a big mess, so we have defined a function that summarizes everything `logit_sim_summary()`:
+```{r}
+logit_sim_summary(sim2)
+```
+
+
+
+
+# How to do AIC/BIC selection
+
+So I was screwing around a lot on how to do the AIC/BIC selection, so probably I'll just fit somekind of model setting nfold = 1, repl = 1 and set alphas and lambdas myself.
+
+So in any case: let's remember why someone should use AIC/BIC etc for model selection. Basically it also (up to some constants) also asymptotically estimates the (generalizaion) loss. To do this we just take the training loglikelihood. We have given: the loss which is the negative loglikelihood. So we can just do $\times -1$. So we can use this to choose the ideal setting of lambda. Let's see manually, e.g. with enetLTS. Suppose now we fit the model using a user-set alpha and lambda, force the cross validation to 1 fold and 1 replication (basically turning CV off). But; this doesn't seem to work, because the loss (or loglik) from a model with contamination would be infinity.
+
+There is somekind of a paradox here (or just something to keep in mind very carefully): keeping in mind real-world applications. Splitting the dataset at hand to select a model etc. or to get performance measures, is good. But we cannot assume we have an outlier-free dataset at hand, so it will be difficult to tune with that.
+
+What about taking median versua mean (it's more robust) of loglik...
+
+```{r}
+# Fitting
+enetLTS_logit3 <- enetLTS(xx = train1_dirty_X,
+                    yy = train1_dirty_y,
+                    family = "binomial",
+                    lambdas = 0.01,
+                    alphas = 0.8)
+
+enetLTS_logit3b <- enetLTS(xx = train1_dirty_X,
+                    yy = train1_dirty_y,
+                    family = "binomial",
+                    lambdas = 2e-4,
+                    alphas = 1,
+                    nfold = 1,
+                    repl = 1)
+
+lambdas <- seq(0, 0.5, by = 0.01)
+enetLTS_list <- lapply(lambdas, FUN = function(x) enetLTS(xx = train1_dirty_X,
+                                                          yy = train1_dirty_y,
+                                                          family = "binomial",
+                                                          lambdas = x,
+                                                          alphas = 1,
+                                                          nfold = 1,
+                                                          repl = 1))
+
+# Predicting
+enetLTS_logit3_preds <- unname(unlist(predict(enetLTS_logit3,
+                                              newX = test1_X,
+                                              type = "response",
+                                              vers = "reweighted")))
+enetLTS_logit3b_preds <- unname(unlist(predict(enetLTS_logit3b,
+                                              newX = test1_X,
+                                              type = "response",
+                                              vers = "reweighted")))
+# Loss
+logit_loss(y_true = test1_y, prob_hat = enetLTS_logit3_preds)
+logit_loss(y_true = test1_y, prob_hat = enetLTS_logit3b_preds)
+
+```
+
+TO DO: complete the enetLTS_list: getting predictions for them all and checking the differences.
+
+
+Related to the whole AIC/BIC issue. In the KHF paper, p. 11, top it says "Note that the evaluation criteria given by [the MNLL] are robust against outliers, because they are based on the best subsets of size h, which are supposed to be outlier free.
+```{r}
+model <- enetLTS_logit3
+
+
+enetLTS_logit3$objective/enetLTS_logit3$h # This is the mean?
+enetLTS_logit3$best
+enetLTS_logit3$inputs
+
+enetLTS_logit3$residuals[enetLTS_]
+
+
+sum(model$residuals[model$best])
+model$objective
+
+
+-1 * enetLTS_logit3$residuals - 2/enetLTS_logit3$h * enetLTS_logit3$num.nonzerocoef
+
+names()
+
+model$objective # 9.27
+model$residuals # "Deviance residuals", i.e. their sum is the deviance, REWEIGHTED
+residuals(model) # Same as above (deviance residuals) (REWEIGHTED)
+
+sum(model$raw.residuals) # Raw
+sum(model$residuals) # Reweighted
+
+# Do these become the same as the $objective
+sum(model$residuals[model$best]) + model$h * model$lambdaw * sum(abs(model$coefficients))
+sum((model$raw.residuals * model$raw.wt)[model$best]) + model$h * model$lambda * sum(abs(model$raw.coefficients))
+
+
+length(model$residuals[model$best])
+
+```
+Note that the objective is, the __penalized__ sum of the __h__ deviances, from the __raw fits!__
+
+Good question: what actually causes the difference between the raw fit and the reweighted one. My understanding: we can bypass it using the `del` option. And setting it to 0. 
+```{r}
+enetLTS_logit3c <- enetLTS(xx = train1_dirty_X,
+                    yy = train1_dirty_y,
+                    family = "binomial",
+                    lambdas = 0.01,
+                    alphas = 0.8,
+                    nfold = 1,
+                    repl = 1,
+                    del = 0.4)
+sum(enetLTS_logit3c$raw.residuals[enetLTS_logit3c$best])
+sum(enetLTS_logit3c$residuals[enetLTS_logit3c$best])
+
+```
+
+Let's fit a simple enetLTS model for a binary regression problem and see what all the elements of the output are. For ease of notation we'll just call it `model`. We'll set alpha and lambda to a single value to get a LASSO model (alpha = 1) and allow for quick fitting.
+```{r}
+# Fitting
+set.seed(1234)
+model <- enetLTS(xx = train1_dirty_X,
+                 yy = train1_dirty_y,
+                 family = "binomial",
+                 hsize =  0.75, # hsize = .75 default
+                 lambdas = 0.01,
+                 alphas = 1,
+                 nfold = 1,
+                 repl = 1)
+# Looking at what's all in the model object
+names(model) # 22 objects, let's take a look 1 by 1:
+
+# Exploring all elements
+model$objective # 12.00583
+model$best
+model$raw.wt
+model$wt
+model$a00
+model$raw.coefficients # Does not include intercept but coef(model) DOES!
+model$a0
+
+```
+
+The outputs of the enetLTS object:
+
+* `$objective`: sum of the __h penalized__ deviances (see ´$hsize` and `$``)
+* `$best`: vector of length __h__ containing the observation indices of the observation in the best subset.  
+* `$raw.wt`: binary vector of length __n__ that indicate the outliers from the raw fit
+* `$wt`: binary vector of length __n__ that indicate the outliers from the reweighted fit. (to do: more info)
+* `$a00`: intercept from the raw fit
+* `$raw.coefficients`: 
+* `$a0`: intercept from the reweighted fit
+
+A bit of an unclear thing for me is: how does `$objective` relate to `$residuals` and loss in general? The explanation states that it's the sum of the $h$ (smallest?) deviances from the raw fits. We know we can access these raw deviance residuals through `$raw.residuals`. However these are of length $n$, hence we need to select the correct ones. Is this using `$best` or using `$wt`? We know `$objective` has a value of 12.00583, so we need to arrive to this number. Since we are penalizing the sum of the deviances with a positive quantity (l1 / l2 norm) we want the sum of these $h$ deviances to be __smaller__ than 12.00583! 
+
+The penalty formulated is $\sum (1-\alpha) \frac{1}{2} \beta^2_j + \alpha |\beta_j|$ but it's not 100% clear if this includes the intercept or not. If, as is our case now, $\alpha = 1$, then this simplifies to $\sum |\beta_j|$. Hence the 
+```{r}
+# Quantity to arrive upon:
+model$objective # 12.00583
+# This should be the sum of the #h deviances that are PENALIZED
+
+# Taking sums to see if we get close:
+q1 <- sum(model$raw.residuals) # Sum of n deviances = 449.587
+q2 <- sum(model$raw.residuals * model$raw.wt) # 13.61985 rather close but too big already
+q3 <- sum(model$raw.residuals[model$best]) # 2.916376
+
+# Calculating penalty
+p1 <- sum(abs(model$raw.coefficients)) # 7.625889
+p2 <- sum(abs(model$coefficients)) # 3.756319
+p3 <- sum(abs(model$a00), abs(model$raw.coefficients)) # 7.689673
+p4 <- sum(abs(model$a0), abs(model$coefficients)) # 3.7789
+p5 <- sum(abs(coef(model))) # 3.7789
+
+# Extracting h
+h <- model$h
+
+# Checking
+q3 + h * model$lambda * p1
+q3 + h * model$lambda * p2
+q3 + h * model$lambda * p3
+q3 + h * model$lambda * p4
+q3 + h * model$lambda * p5
+
+
+# Purely logically:
+- train1_y[model$best] * 
+
+model_preds <- unname(unlist(predict(model, newX = train1_dirty_X, vers = "reweighted", type = "response")))
+
+
+lambda = 0.01
+
+
+sum(logit_loss(y_true = train1_dirty_y[model$best], prob_hat = model_preds[model$best])$loss) + 0.01 * sum(abs(model$coefficients))
+
+sum(-train1_dirty_y[model$best] * (train1_dirty_X[model$best, ] %*% model$coefficients) + log(1 + exp(train1_dirty_X[model$best, ] %*% model$coefficients))) + model$lambda * (sum(0.5 * (1 - model$alpha) * model$coefficients^2 + model$alpha * abs(model$coefficients)))
+
+objective <- h * (mean((-yy[indexbest] * (xx[indexbest,] %*% coefficients)) +    # is it correct to use indexbest? should not we use raw.wt?
+                                log(1+exp(xx[indexbest,] %*% coefficients))) +
+                           lambdabest * sum(1/2 * (1-alphabest) * coefficients^2 +
+                                               alphabest*abs(coefficients)))
+
+
+X <- cbind(1, train1_dirty_X)
+y <- train1_dirty_y
+X_best <- X[model$best, ]
+y_best <- y[model$best]
+beta <- coef(model)
+eta <- X_best %*% beta
+h <- model$h
+lambda <- model$lambda
+alpha <- model$alpha
+
+
+loss <- - y_best * eta + log(1 + exp(eta))
+pen <- h * lambda * (sum(0.5 * (1 - alpha) * beta^2 + alpha * abs(beta)))
+sum(loss) + pen # YES THIS IT IT!
+
+loss == model$residuals[model$best] # Yes this is equal
+loss == model$raw.residuals[model$best]
+
+
+
+
+
+```
+
+The AIC should go something like this:
+```{r}
+# AIC
+-model$objective/model$h - 2 * length(coef(model) != 0)
+
+# Going over some stuff
+alphas <- c(0, runif(n = 18, min = 0, max = 1), 1)
+lambdas <- c(0, runif(n = 50), min = 0, max = 1)
+
+models <- enetLTS(xx = train1_dirty_X,
+                  yy = train1_dirty_y,
+                  family = "binomial",
+                  alphas = alphas,
+                  lambdas = lambdas,
+                  repl = 1,
+                  nfold = 10)
+models$objective
+#[1] "optimal model: lambda = 0.2158 alpha = 0.9608"
+
+
+
+# Default setting BUT 1 repl for speed
+model2 <- enetLTS(xx = train1_dirty_X,
+                  yy = train1_dirty_y,
+                  family = "binomial",
+                  repl = 1,
+                  nfold = 5)
+# [1] "optimal model: lambda = 0.0066 alpha = 0.825"
+
+model2$objective
+length(model2$inputs$alphas)
+
+model3 <- enetLTS(xx = train1_dirty_X,
+                  yy = train1_dirty_y,
+                  family = "binomial",
+                  alphas = c(0, runif(n = 39, min = 0, max = 1), 1),
+                  repl = 1,
+                  nfold = 5)
+model3$objective
+
+
+model4 <- enetLTS(xx = train1_dirty_X,
+                  yy = train1_dirty_y,
+                  family = "binomial",
+                  alphas = c(0, runif(n = 39, min = 0, max = 1), 1),
+                  lambdas = c(0, runif(n = 40, min = 0, max = 1), 2:4),
+                  repl = 1,
+                  nfold = 5)
+model4$objective
+
+
+
+
+
+
+
+
+models <- lapply(lambdas, FUN = function(x) enetLTS(xx = train1_dirty_X,
+                                                    yy = train1_dirty_y,
+                                                    family = "binomial",
+                                                    alphas = 1,
+                                                    lambdas = x,
+                                                    repl = 1,
+                                                    nfold = 1))
+
+
+
+
+```
+
+```{r}
+alphas <- seq(0, 1, by = 0.02)
+
+model_list <- lapply(alphas, FUN = function(x) glmnet(x = train1_X,
+                                                      y = train1_y,
+                                                      family = "binomial",
+                                                      alpha = x))
+
+# Extracting lambda paths
+lambda_path <- vector("list", length = length(alphas))
+dfs <- vector("list", length = length(alphas))
+for(i in 1:length(alphas)){
+  lambda_path[[i]] <- model_list[[i]]$lambda
+  dfs[[i]] <- model_list[[i]]$df
+}
+
+# Logliks
+logitloss <- vector("list", length = length(alphas))
+min_per_alpha <- matrix(NA, nrow = length(alphas), ncol = 4)
+rownames(min_per_alpha) <- paste(alphas)
+colnames(min_per_alpha) <- c("lambda", "avg_loss", "df", "AIC")
+for(i in 1:length(alphas)){
+  logitloss[[i]] <- matrix(NA, ncol = 4, nrow = length(lambda_path[[i]]))
+  colnames(logitloss[[i]]) <- c("lambda", "loss", "df", "AIC")
+  logitloss[[i]][, 1] <- lambda_path[[i]]
+  logitloss[[i]][, 3] <- dfs[[i]]
+  for(j in 1:length(lambda_path[[i]])){
+    preds <- predict(model_list[[i]], newx = train1_X, s = lambda_path[[i]][j], type = "response")
+    logitloss[[i]][j, 2] <- logit_loss(y_true = train1_y, prob_hat = preds)$avg_loss
+  }
+  min_loss_per_alpha <- min(logitloss[[i]][, 2])
+  min_lambda_per_alpha <- logitloss[[i]][which.min(logitloss[[i]][, 2]), 1]
+  min_per_alpha[i, 1] <- min_lambda_per_alpha
+  min_per_alpha[i, 2] <- min_loss_per_alpha
+}
+
+n <- length(train1_y)
+
+# AIC calc
+for(i in 1:length(alphas)){
+  logitloss[[i]][, 4] <- logitloss[[i]][, 2] - 2*logitloss[[i]][, 3]/n
+}
+```
+
+
+# IDEAS:
+
+
+
+```{r}
+
+set.seed(1)
+library("glmnet")
+x <- matrix(rnorm(100*20),100,20)
+y <- rnorm(100)
+
+mysd <- function(y) sqrt(sum((y-mean(y))^2)/length(y))
+sx <- scale(x, scale=apply(x, 2, mysd))
+sx <- as.matrix(sx, ncol=20, nrow=100)
+
+y_bin <- factor(ifelse(y<0, -1, 1))
+prop.table(table(y_bin)) 
+# y_bin
+#   -1    1 
+# 0.62 0.38 
+fitGLM_log <- glmnet(sx, y_bin, family = "binomial")
+max(fitGLM_log$lambda)
+# [1] 0.1214006
+max(abs(colSums(sx*ifelse(y<0, -.38, .62))))/100
+# [1] 0.1214006
+```
+
+# Testing basis for AIC
+
+Seeing if our changed code works for nfold = 1
+```{r}
+## Assigning our new code
+# Sourcing
+source(file = "C://Users/Vincent Wauters/Google Drive/Schoolwerk/KU Leuven/Thesis_Sparse_Robust_Logistic_Regression/enetLTS_UPDATED/cv.enetLTS_UPDATE.R")
+# Assigning to namespace
+assignInNamespace("cv.enetLTS", cv.enetLTS_UPDATE, "enetLTS")
+#assignInNamespace("calc_evalCrit", calc_evalCrit_UPDATE, "enetLTS") # Doesn't seem to be necessary as it was defined within
+assignInNamespace("enetLTS", enetLTS_UPDATE, "enetLTS") # doesnt work
+
+# Running
+enetLTS_logit1_temp <- enetLTS(xx = train1[, -1],
+                    yy = train1[, 1],
+                    family = "binomial",
+                    nfold = 1,
+                    repl = 1,
+                    plot = FALSE) # plot = FALSE because still some problems with external functions (e.g. melt(), grid.newpage())
+
+# Trying with plot = TRUE
+enetLTS_logit1_temp <- enetLTS(xx = train1[, -1],
+                    yy = train1[, 1],
+                    family = "binomial",
+                    nfold = 1,
+                    repl = 1,
+                    plot = TRUE)
+```
+
+Yes it works and it's quite fast! Only thing is the plotting function that has some trouble getting the melt(), grid.newpage(), pushViewport() functions to work, probably because it's coming from another package.
+
+Let's now try to calculate the AIC for LASSO models, as the df calculation for the AIC is easy: just number of nonzero coefs.
+```{r}
+enetLTS_logit1_temp <- enetLTS:::enetLTS(xx = train1[, -1],
+                               yy = train1[, 1],
+                               family = "binomial",
+                               alphas = 1, # LASSO,
+                               nfold = 1,
+                               repl = 1,
+                               plot = TRUE,
+                               ic_type = "AIC")
+# OKAY WEIRD: it always selects a model with lambda = 0, so no regularization. Let's just run 3 models or so
+lambdas <- c(0.0001, 0.01, 0.1, 0)
+enetLTS_list_temp <- lapply(lambdas, FUN = function(x) enetLTS:::enetLTS(xx = train1[, -1],
+                                                                         yy = train1[, 1],
+                                                                         family = "binomial",
+                                                                         alphas = 1, # LASSO,
+                                                                         lambdas = x,
+                                                                         lambdaw = x,
+                                                                         del = 0,
+                                                                         nfold = 1,
+                                                                         repl = 1,
+                                                                         plot = TRUE,
+                                                                         ic_type = "AIC"))
+for(i in 1:length(enetLTS_list_temp)){
+  print(c(enetLTS_list_temp[[i]]$lambda, enetLTS_list_temp[[i]]$lambdaw))
+  #print(enetLTS_list_temp[[i]]$lambdaw)
+}
+```
+
+
+Let's see if AIC then works for setting del = 0. Again with alphas = 1, fixed for ease of computation of the degrees of freedom for the information criterion.
+```{r}
+set.seed(500)
+enetLTS_logit1_temp <- enetLTS:::enetLTS(xx = train1[, -1],
+                               yy = train1[, 1],
+                               family = "binomial",
+                               nfold = 1,
+                               repl = 1,
+                               plot = TRUE,
+                               ic_type = "EBIC")
+enetLTS_logit1_temp$num.nonzerocoef
+
+set.seed(500)
+enetLTS_logit2_temp <- enetLTS:::enetLTS(xx = train1[, -1],
+                               yy = train1[, 1],
+                               family = "binomial",
+                               nfold = 1,
+                               repl = 1,
+                               plot = TRUE,
+                               ic_type = "BIC")
+enetLTS_logit2_temp$num.nonzerocoef
+
+set.seed(500)
+enetLTS_logit4_temp <- enetLTS:::enetLTS(xx = train1[, -1],
+                               yy = train1[, 1],
+                               family = "binomial",
+                               nfold = 1,
+                               repl = 1,
+                               plot = TRUE,
+                               ic_type = "AIC")
+enetLTS_logit3_temp$num.nonzerocoef
+
+# what about returning mulitple values
+```
+Gives kind of weird results, so let's now see if it actually maybe gives better results!
+
+A lot of code from before is copied here. I adjusted the logit_sim function to also have a part for enetLTS_IC, i.e. enetLTS by IC selection.
+```{r}
+# Parameters
+p_a <- 5
+p_b <- 45
+beta <- c(rep(1, times = p_a), rep(0, times = p_b))
+p <- length(beta)
+seed <- 596442 # KU Leuven student nr.
+n <- 100
+dirty <- 0.05
+ic_type = "AIC"
+runs <- 3
+
+
+# Running simulation oevr different fitting types
+types <- c("enetLTS_IC")
+sim3 <- lapply(types, FUN = function(x) logit_sim(beta = beta, 
+                         p = p,
+                         p_a = p_a,
+                         n = n,
+                         runs = runs,
+                         dirty = dirty,
+                         dgp = "bernoulli",
+                         type = x,
+                         seed = seed,
+                         ic_type = "AIC"))
+names(sim3) <- c("enetLTS_IC1")
+
+# Creating Summary
+sim3_summary <- logit_sim_summary(sim3)
+
+# Checking structure (names) of the sim1_summary
+names(sim1_summary)
+
+# Plotting some quantities
+boxplot(sim3_summary$loss, main = "Test Loss")
+boxplot(sim3_summary$misclass, main = "Misclassification Loss")
+boxplot(sim3_summary$fpr, main = "Coefficient False Positive Rate")
+boxplot(sim3_summary$tpr, main = "Coefficient True Positive Rate")
+boxplot(sim3_summary$prec, main = "Coefficient Avg. RMSE")
+```
+
+
+
+# NOTE: how to edit nasty functions in packages:
+```{r}
+trace("enetLTS", edit=TRUE) # To get the edits
+# Don't do any edit in the window
+# make your own function by copying the original in an R file
+assignInNamespace("enetLTS", enetLTS_UPDATE, "enetLTS")
+
+# getting old function:
+#assignInNamespace("enetLTS", enetLTS, "enetLTS")
+
+
+# Also make sure all fucntions from the enetLTS package have enetLTS::: before them
+
+## TO END:
+untrace("enetLTS")
+```
+
+
+# ideas
+
+WHAT ABOUT SOMEKIND OF AUC FOR BETA RECOVERY (is also 2 outcome thing) or confusion matrix
+* We can do BIC approach by just setting
+* Also reproduceability of logit_sim due to random element
+* is the use of logistic loss still usefull when having fitted the model with penalization
+* can we tune alpha?
+* I think we might have some problems. Okay suppose we want to make use of the lambda warm starts in the glmnet fitting. Problem is, our h-subsets are also based on somekind of lambda-alpha values and they might not be the same as the ones that glmnet outputs...
+* Lamba_max (0) calcualtion for logistic regression: it seems lambda_max for a logistic regression is calculated similarly, with weights based on class proportions:
+* Change type.measure in the reweighting step to loglikelihood
+* Tune for alpha at reweighting as well
+* Gaussian process to estimate the error (tuning)
+
+# NOTES
+
+* The lognet() warning "one binomial calss has fewer than 8 observations, dangerous grounds comes from the warmCsteps()" function
+* Is the intercept correctly left alone?
