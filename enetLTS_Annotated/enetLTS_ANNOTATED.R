@@ -102,7 +102,10 @@ enetLTS <- function (xx, yy, family = c("gaussian", "binomial"), alphas,
   }
   
   ## Data Preparation: Robust (robu = 1) center and location of X, centering of y (Binomial y untouched)
-  sc <- enetLTS:::prepara(xx, yy, family, robu = 1) # enetLTS:::prepara
+  sc <- enetLTS:::prepara(x = xx, 
+                          y = yy, 
+                          family = family, 
+                          robu = 1) # enetLTS:::prepara
   x <- sc$xnor # The normalized (scaled + centered) X matrix
   y <- sc$ycen # Centered-only y vector (Is kept the same for Binomial, i.e. no centering)
   
@@ -166,8 +169,12 @@ enetLTS <- function (xx, yy, family = c("gaussian", "binomial"), alphas,
   
   ## If scaling == TRUE (default)
   if (scal == TRUE) {
-    # Data preparation
-    scl <- prepara(xx, yy, family, indexbest, robu = 0) # Nonrobust 
+    # Data Normalization (Not on the already robustly standardized data but on the original data again!)
+    scl <- prepara(x = xx, 
+                   y = yy, 
+                   family = family, 
+                   index = indexbest, 
+                   robu = 0) # Nonrobust 
     xs <- scl$xnor # Normalized X
     ys <- scl$ycen # Centered y (not for binomial)
     
@@ -183,18 +190,28 @@ enetLTS <- function (xx, yy, family = c("gaussian", "binomial"), alphas,
     # Binomial 
     if (family == "binomial") {
       # If no intercept:
-      a00 <- if(intercept == F){
+      a00 <- if(intercept == FALSE){
         0} else{ 
-          drop(fit$a0 - as.vector(as.matrix(fit$beta)) %*% (scl$mux/scl$sigx))} # ???? (note: changed the parentheses a bit)
-      # Something with results from prepara()
+          drop(fit$a0 - as.vector(as.matrix(fit$beta)) %*% (scl$mux/scl$sigx))} # ????
+      # fit$a0 is the intercept from a model with intercept = FALSE, so it's always 0, why this?
+      # a00 is the intercept from the raw fit. If intercept == FALSE: a00 <- 0, otherwise: 
       # drop() deletes the (redundant?) dimensions of an array which only has 1 level
+      # the normalizations make sense here because standardize = F and was fed the same data
       
-      raw.coefficients <- drop(as.matrix(fit$beta)/scl$sigx)
-      raw.residuals <- -(ys * xs %*% as.matrix(fit$beta)) + log(1 + exp(xs %*% as.matrix(fit$beta)))
-      raw.wt <- weight.binomial(xx, yy, c(a00, raw.coefficients), intercept = intercept, del)
+      raw.coefficients <- drop(as.matrix(fit$beta)/scl$sigx) #??
+      raw.residuals <- -(ys * xs %*% as.matrix(fit$beta)) + log(1 + exp(xs %*% as.matrix(fit$beta))) #why not incl intercept??
+      raw.wt <- weight.binomial(x = xx, 
+                                y = yy, 
+                                beta = c(a00, raw.coefficients), # Intercept is added
+                                intercept = intercept, # But then internally removed again if necessary (intercept = FALSE)
+                                del = del)
       
-      # Again centeirng and scaling (nonrobust ?)
-      sclw <- prepara(xx, yy, family, which(raw.wt == 1), robu = 0)
+      # Again centering and scaling (nonrobust, taking only the wt =1 into account!!)
+      sclw <- prepara(x = xx, 
+                      y = yy, 
+                      family = family, 
+                      index = which(raw.wt == 1), 
+                      robu = 0)
       xss <- sclw$xnor
       yss <- sclw$ycen
       
@@ -207,7 +224,7 @@ enetLTS <- function (xx, yy, family = c("gaussian", "binomial"), alphas,
                              nfolds = 5, 
                              alpha = alphabest, 
                              standardize = FALSE, 
-                             intercept = FALSE, 
+                             intercept = FALSE, # should have intercept as well i think
                              type.measure = "mse")$lambda.min # ??? MSE and lambda.min?
       }
       # 1 User-supplied lambda
@@ -237,29 +254,39 @@ enetLTS <- function (xx, yy, family = c("gaussian", "binomial"), alphas,
                      intercept = FALSE)
       a0 <- if (intercept == F) 
         0
-      else drop(fitw$a0 - as.vector(as.matrix(fitw$beta)) %*% (sclw$mux/sclw$sigx))
-      coefficients <- drop(as.matrix(fitw$beta)/sclw$sigx)
-      wgt <- weight.binomial(xx, yy, c(a0, coefficients), intercept, del)
-      reweighted.residuals <- -(yy * cbind(1, xx) %*% c(a0, coefficients)) + log(1 + exp(cbind(1, xx) %*% c(a0, coefficients)))
+      else drop(fitw$a0 - as.vector(as.matrix(fitw$beta)) %*% (sclw$mux/sclw$sigx)) # Would make sense for Gaussian but not binomial?!!! (to do)
+      coefficients <- drop(as.matrix(fitw$beta)/sclw$sigx) # Yes indeed to get the coefs back in terms of the original measurement scale: divide
+      wgt <- weight.binomial(x = xx, 
+                             y = yy, 
+                             beta = c(a0, coefficients), 
+                             intercept = intercept, 
+                             del = del)
+      reweighted.residuals <- -(yy * cbind(1, xx) %*% c(a0, coefficients)) + log(1 + exp(cbind(1, xx) %*% c(a0, coefficients))) #here with 1 col!
     }
     # Gaussian case
     else if (family == "gaussian") {
       a00 <- if (intercept == F) 
         0
-      else drop(scl$muy + fit$a0 - as.vector(as.matrix(fit$beta)) %*% (scl$mux/scl$sigx))
+      else drop(scl$muy + fit$a0 - as.vector(as.matrix(fit$beta)) %*% (scl$mux/scl$sigx)) # Yes this makes sense, formula is b0 - b1x_avg! (work out on paper) 
       raw.coefficients <- drop(as.matrix(fit$beta)/scl$sigx)
       raw.residuals <- yy - cbind(1, xx) %*% c(a00, raw.coefficients)
       raw.rmse <- sqrt(mean(raw.residuals^2))
       raw.wt <- weight.gaussian(raw.residuals, indexbest, 
                                 del)$we
-      sclw <- prepara(xx, yy, family, which(raw.wt == 1), 
+      sclw <- prepara(x = xx, 
+                      y = yy, 
+                      family = family, 
+                      index = which(raw.wt == 1), 
                       robu = 0)
       xss <- sclw$xnor
       yss <- sclw$ycen
       if ((missing(lambdaw))) {
-        lambdaw <- cv.glmnet(xss[which(raw.wt == 1), 
-                                 ], yss[which(raw.wt == 1)], family = family, 
-                             nfolds = 5, alpha = alphabest, standardize = FALSE, 
+        lambdaw <- cv.glmnet(x = xss[which(raw.wt == 1), ], 
+                             y = yss[which(raw.wt == 1)], 
+                             family = family, 
+                             nfolds = 5, 
+                             alpha = alphabest, 
+                             standardize = FALSE, 
                              intercept = FALSE, type.measure = "mse")$lambda.min
       }
       else if (!missing(lambdaw) & length(lambdaw) == 1) {
@@ -271,18 +298,20 @@ enetLTS <- function (xx, yy, family = c("gaussian", "binomial"), alphas,
                              lambda = lambdaw, nfolds = 5, alpha = alphabest, 
                              standardize = FALSE, intercept = FALSE, type.measure = "mse")$lambda.min
       }
-      fitw <- glmnet(xss[which(raw.wt == 1), ], yss[which(raw.wt == 
-                                                            1)], family, alpha = alphabest, lambda = lambdaw, 
-                     standardize = FALSE, intercept = FALSE)
+      fitw <- glmnet(x = xss[which(raw.wt == 1), ], 
+                     y = yss[which(raw.wt == 1)], 
+                     family = family, 
+                     alpha = alphabest, 
+                     lambda = lambdaw, 
+                     standardize = FALSE, 
+                     intercept = FALSE)
       a0 <- if (intercept == F) 
         0
       else drop(sclw$muy + fitw$a0 - as.vector(as.matrix(fitw$beta)) %*% (sclw$mux/sclw$sigx))
       coefficients <- drop(as.matrix(fitw$beta)/sclw$sigx)
-      reweighted.residuals <- yy - cbind(1, xx) %*% c(a0, 
-                                                      coefficients)
+      reweighted.residuals <- yy - cbind(1, xx) %*% c(a0, coefficients)
       reweighted.rmse <- sqrt(mean(reweighted.residuals^2))
-      wgt <- weight.gaussian(reweighted.residuals, raw.wt == 
-                               1, del)$we
+      wgt <- weight.gaussian(reweighted.residuals, raw.wt == 1, del)$we
     } # END Gaussian Case
   } # END IF SCALING == TRUE
   
@@ -305,8 +334,9 @@ enetLTS <- function (xx, yy, family = c("gaussian", "binomial"), alphas,
       raw.residuals <- -(y * x %*% as.matrix(fit$beta)) + log(1 + exp(x %*% as.matrix(fit$beta)))
       raw.wt <- weight.binomial(xx, yy, c(a00, raw.coefficients), intercept, del)
       if (missing(lambdaw)) {
-        lambdaw <- cv.glmnet(x[which(raw.wt == 1), ], 
-                             y[which(raw.wt == 1)], family = family, 
+        lambdaw <- cv.glmnet(x = x[which(raw.wt == 1), ], 
+                             y = y[which(raw.wt == 1)], 
+                             family = family, 
                              nfolds = 5, 
                              alpha = alphabest, 
                              standardize = FALSE, 
@@ -317,8 +347,8 @@ enetLTS <- function (xx, yy, family = c("gaussian", "binomial"), alphas,
         lambdaw <- lambdaw
       }
       else if (!missing(lambdaw) & length(lambdaw) > 1) {
-        lambdaw <- cv.glmnet(x[which(raw.wt == 1), ], 
-                             y[which(raw.wt == 1)], 
+        lambdaw <- cv.glmnet(x = x[which(raw.wt == 1), ], 
+                             y = y[which(raw.wt == 1)], 
                              family = family, 
                              lambda = lambdaw, 
                              nfolds = 5, 
@@ -327,18 +357,25 @@ enetLTS <- function (xx, yy, family = c("gaussian", "binomial"), alphas,
                              intercept = FALSE, 
                              type.measure = "mse")$lambda.min
       }
-      fitw <- glmnet(x[which(raw.wt == 1), ], 
-                     y[which(raw.wt == 1)], 
-                     family, alpha = alphabest, 
+      fitw <- glmnet(x = x[which(raw.wt == 1), ], 
+                     y = y[which(raw.wt == 1)], 
+                     family = family, 
+                     alpha = alphabest, 
                      lambda = lambdaw, 
                      standardize = FALSE, 
                      intercept = FALSE)
       a0 <- if (intercept == F) 
         0
-      else drop(fitw$a0 - as.vector(as.matrix(fitw$beta)) %*% 
-                  (sc$mux/sc$sigx))
-      coefficients <- drop(as.matrix(fitw$beta)/sc$sigx)
-      wgt <- weight.binomial(xx, yy, c(a0, coefficients), intercept, del)
+      else drop(fitw$a0 - as.vector(as.matrix(fitw$beta)) %*% (sc$mux/sc$sigx)) 
+      # Yes this works to get the unstandardized intercept back again, but problematic: fit object above was fitted with intercept = FALSE!? (to do)
+      
+      # Getting betas on original scale back again
+      coefficients <- drop(as.matrix(fitw$beta)/sc$sigx) 
+      wgt <- weight.binomial(x = xx, 
+                             y = yy, 
+                             beta = c(a0, coefficients),  # Bit nasty: they add intercept anyway but will remove it in weight.binomial() if intercept = FALSE
+                             intercept = intercept, 
+                             del = del)
       reweighted.residuals <- -(yy * cbind(1, xx) %*% c(a0, coefficients)) + log(1 + exp(cbind(1, xx) %*% c(a0, coefficients)))
     }
     
@@ -346,18 +383,20 @@ enetLTS <- function (xx, yy, family = c("gaussian", "binomial"), alphas,
     else if (family == "gaussian") {
       a00 <- if (intercept == F) 
         0
-      else drop(sc$muy + fit$a0 - as.vector(as.matrix(fit$beta)) %*% 
-                  (sc$mux/sc$sigx))
+      else drop(sc$muy + fit$a0 - as.vector(as.matrix(fit$beta)) %*% (sc$mux/sc$sigx))
       raw.coefficients <- drop(as.matrix(fit$beta)/sc$sigx)
       raw.residuals <- yy - cbind(1, xx) %*% c(a00, raw.coefficients)
       raw.rmse <- sqrt(mean(raw.residuals^2))
-      raw.wt <- weight.gaussian(raw.residuals, indexbest, 
+      raw.wt <- weight.gaussian(raw.residuals, 
+                                indexbest, 
                                 del)$we
       if (missing(lambdaw)) {
-        lambdaw <- cv.glmnet(x[which(raw.wt == 1), ], 
-                             y[which(raw.wt == 1)], family = family, 
+        lambdaw <- cv.glmnet(x = x[which(raw.wt == 1), ], 
+                             y = y[which(raw.wt == 1)], 
+                             family = family, 
                              nfolds = 5, 
-                             alpha = alphabest, standardize = FALSE, 
+                             alpha = alphabest, 
+                             standardize = FALSE, 
                              intercept = FALSE, 
                              type.measure = "mse")$lambda.min
       }
@@ -365,8 +404,9 @@ enetLTS <- function (xx, yy, family = c("gaussian", "binomial"), alphas,
         lambdaw <- lambdaw
       }
       else if (!missing(lambdaw) & length(lambdaw) > 1) {
-        lambdaw <- cv.glmnet(x[which(raw.wt == 1), ], 
-                             y[which(raw.wt == 1)], family = family, 
+        lambdaw <- cv.glmnet(x = x[which(raw.wt == 1), ], 
+                             y = y[which(raw.wt == 1)], 
+                             family = family, 
                              lambda = lambdaw, 
                              nfolds = 5, 
                              alpha = alphabest, 
@@ -375,19 +415,18 @@ enetLTS <- function (xx, yy, family = c("gaussian", "binomial"), alphas,
                              type.measure = "mse")$lambda.min
       }
       # Fitting reweighted fit
-      fitw <- glmnet(x[which(raw.wt == 1), ], 
-                     y[which(raw.wt == 1)], 
-                     family, alpha = alphabest, 
+      fitw <- glmnet(x = x[which(raw.wt == 1), ], 
+                     y = y[which(raw.wt == 1)], 
+                     family = family, 
+                     alpha = alphabest, 
                      lambda = lambdaw, 
                      standardize = FALSE, 
                      intercept = FALSE)
       a0 <- if (intercept == F) 
         0
-      else drop(sc$muy + fitw$a0 - as.vector(as.matrix(fitw$beta)) %*% 
-                  (sc$mux/sc$sigx))
+      else drop(sc$muy + fitw$a0 - as.vector(as.matrix(fitw$beta)) %*% (sc$mux/sc$sigx))
       coefficients <- drop(as.matrix(fitw$beta)/sc$sigx)
-      reweighted.residuals <- yy - cbind(1, xx) %*% c(a0, 
-                                                      coefficients)
+      reweighted.residuals <- yy - cbind(1, xx) %*% c(a0, coefficients)
       reweighted.rmse <- sqrt(mean(reweighted.residuals^2))
       wgt <- weight.gaussian(reweighted.residuals, raw.wt == 1, del)$we
     }
@@ -427,14 +466,13 @@ enetLTS <- function (xx, yy, family = c("gaussian", "binomial"), alphas,
   ## Objective
   # Binomial
   if (family == "binomial") {
-    objective <- h * (mean((-yy[indexbest] * (xx[indexbest, ] %*% coefficients)) + log(1 + exp(xx[indexbest,] %*% coefficients))) + lambdabest * sum(1/2 * (1 - 
-                                                                                                                                         alphabest) * coefficients^2 + alphabest * abs(coefficients)))
-  }
+    objective <- h * (mean((-yy[indexbest] * (xx[indexbest, ] %*% coefficients)) + log(1 + exp(xx[indexbest,] %*% coefficients))) + lambdabest * sum(1/2 * (1 - alphabest) * coefficients^2 + alphabest * abs(coefficients)))
+    # Seems wrong: it takes the best h subset (OK); does not take intercept into account (NOK??); does use reweighted coefs (NOK?).
+    # I think: or it uses the reweighted coefs (and includes intercept) on the data subsetted by (raw.)?wt instead of h-subset, or just use raw.coefs
+  } 
   # Gaussian
   else if (family == "gaussian") {
-    objective <- h * ((1/2) * mean((yy[indexbest] - xx[indexbest, 
-                                                       ] %*% coefficients)^2) + lambdabest * sum(1/2 * (1 - 
-                                                                                                          alphabest) * coefficients^2 + alphabest * abs(coefficients)))
+    objective <- h * ((1/2) * mean((yy[indexbest] - xx[indexbest, ] %*% coefficients)^2) + lambdabest * sum(1/2 * (1 -alphabest) * coefficients^2 + alphabest * abs(coefficients)))
   }
   if (intercept) {
     coefficients <- coefficients[-1]
