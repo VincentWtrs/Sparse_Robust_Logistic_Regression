@@ -19,7 +19,7 @@ CStep_ANNOTATED <- function (x, y, family, indx, h, hsize, alpha, lambda, scal)
                     alpha = alpha, 
                     lambda = lambda, 
                     standardize = FALSE,  # Already done manually
-                    intercept = FALSE) # No because we standardized the data ??? DOES THIS HOLD FOR BINOMIAL?
+                    intercept = FALSE) # No because we standardized the data ??? THIS DOES HOLD FOR THE ELEMENTAL SUBSETS AS THEY ARE 50/50 FOR 0/1 OUTCOMES BY CONSTRUCTION
       # THIS FITTING IS ACTUALLY THROWING THE ERROR WHEN DOING THE FITTING FOR THE ELEMENTAL SUBSETS (OF SIZE 3/4), THIS IS NOT PROBLEMATIC
       # Warning: In lognet(x, is.sparse, ix, jx, y, weights, offset, alpha, nobs, : one multinomial or binomial class has fewer than 8  observations; dangerous ground
       
@@ -91,7 +91,7 @@ CStep_ANNOTATED <- function (x, y, family, indx, h, hsize, alpha, lambda, scal)
       index0 <- resid.sort$ix[y[resid.sort$ix] == 0][1:h0]
       index1 <- resid.sort$ix[y[resid.sort$ix] == 1][1:h1]
       indxnew <- c(index0, index1)
-    }
+    } # Gaussian
     else if (family == "gaussian") {
       fit <- glmnet(x = x[indx, ], 
                     y = y[indx], 
