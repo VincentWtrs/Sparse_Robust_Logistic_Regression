@@ -1,10 +1,12 @@
-binary_reg_dgp2 <- function(n, p, p_a, beta, sigma_in = NULL, dirty = 0, type = "latent", v_outlier = 0, test){
-  ## binary_reg_dgp1(): generates data following KHF (2017) based on Bernoulli, parametrized by structural eta
+binary_reg_dgp2 <- function(n, p, p_a, beta, beta0, sigma_in = NULL, dirty = 0, type = "latent", v_outlier = 0, test){
+  
+  ## binary_reg_dgp2(): generates data following KHF (2017) based on Bernoulli, parametrized by structural eta
   ## INPUTS: n: sample size
   # p: dimensionality EXCLUDING INTERCEPT!
   # p_a: dimensionality of the informative part (excluding intercept)
   # sigma: the covariance matrices (?list of covs?)
   # dirty: proportion (decimals) of contamination
+  
   ## NOTE: INTERCEPT ASSUMED TO BE 1!
   
   # setting seed? Stil not 100% sure on this, it will allow us to fully reconstruct based on the seed...
@@ -41,12 +43,12 @@ binary_reg_dgp2 <- function(n, p, p_a, beta, sigma_in = NULL, dirty = 0, type = 
   #### CLEAN Predictor (X) data
   ### Informative predictors (X_a)
   ## Covariance Matrix (sigma_a)
-  # Default sigma (KHF paper)
+  # Default sigma (KHF paper, rho = 0.9 decreasing)
   if(is.null(sigma_in)){   
     
     # Initializing
     sigma_a <- matrix(NA, nrow = p_a, ncol = p_a)
-    rho_a <- 0.9
+    rho_a <- 0.9 # Standard used in the paper
     
     # Filling up with a series of powers of rho based on "distance" between predictors
     for(i in 1:p_a){
@@ -84,15 +86,14 @@ binary_reg_dgp2 <- function(n, p, p_a, beta, sigma_in = NULL, dirty = 0, type = 
     
   }
   
-  
   # Combining both X_a and X_b
   X <- cbind(X_a, X_b) # Can bind X_b even if NULL
   
   ## Creating CLEAN outcomes
-  # Creating linear predictor (that is, including intercept, set to 1)
-  eta <- 1 + X %*% beta
+  # Creating linear predictor (that is, including intercept, given by beta0)
+  eta <- beta0 + X %*% beta
   
-  # y: BERNOUILLI DGP
+  # y: BERNOULLI DGP TYPE
   if(type == "bernoulli"){
   # Creating prob (pi or p) parameter
   prob <- exp(eta) / (1 + exp(eta))
@@ -126,19 +127,18 @@ binary_reg_dgp2 <- function(n, p, p_a, beta, sigma_in = NULL, dirty = 0, type = 
     # Amount of observations to contaminate
     n_contam <- ceiling(dirty * n_0) # had this set to floor originally, but got into trouble with 0 :(
     
-    # Contaminating using N(20, 1)
+    # Contaminating using N(20, 1) (Different case if single predictor versus multiple predictors)
     if(p == 1){
       X_a[y == 0][1:n_contam] <- rnorm(n = n_contam, mean = 20, sd = 1)
     } else if(p != 1){
-      
       X_a[y == 0, ][1:n_contam, ] <- rmvnorm(n = n_contam, mean = rep(20, p_a))
       # (sigma default hence I-matrix (independent))
-      # , drop= FALSE to maintain a matrix
+      # , drop = FALSE to maintain a matrix (??? to do ?)
     }
     
     ## Vertical outliers
     if(v_outlier == 1){
-      y[y == 0][1:n_contam] <- 1
+      y[y == 0][1:n_contam] <- 1 
     }
     
     ## Combining both
