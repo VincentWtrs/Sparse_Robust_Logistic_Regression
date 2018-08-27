@@ -1,24 +1,24 @@
-binary_reg_dgp2 <- function(n, p, p_a, beta, beta0, sigma_in = NULL, dirty = 0, type = "latent", v_outlier = 0, test){
+binary_reg_dgp2 <- function(n, beta, beta0 = 1, sigma_in = NULL, dirty = 0, type = "latent", v_outlier = "VW", test){
   
   ## binary_reg_dgp2(): generates data following KHF (2017) based on Bernoulli, parametrized by structural eta
-  ## INPUTS: n: sample size
-  # p: dimensionality EXCLUDING INTERCEPT!
-  # p_a: dimensionality of the informative part (excluding intercept)
+  ## INPUTS: 
+  # n: sample size
+  # beta: the true coefficients including the zeros
+  # beta0: the intercept, default = 1
   # sigma: the covariance matrices (?list of covs?)
-  # dirty: proportion (decimals) of contamination
-  
-  ## NOTE: INTERCEPT ASSUMED TO BE 1!
+  # dirty: proportion (decimals) of contamination (default = 0)
+  # type: type of DGP: "latent" is the one based on latent factors as in KHF, "bernoulli" is the one based on Bernoulli parameter parametrized by eta
+  # v_outlier: if additional vertical outliers are added, KHF (2017) advocate this approach, I think this does not make much sense
+  # test: if a test set needs to be created, this just overrides all settings to have a clean dataset
   
   # setting seed? Stil not 100% sure on this, it will allow us to fully reconstruct based on the seed...
   
-  p_b <- p - p_a # Dimensionality of the uninformative part
+  # Extracting dimensionalities from the beta vector
+  p <- length(beta) # Total dimensionality WITHOUT INTERCEPT
+  p_a <- sum(beta != 0) # Dimensionality INFORMATIVE part of the DGP
+  p_b <- p - p_a # Dimensionality of the UNINFORMATIVE part (is actually not part of the DGP)
   
   ## Error Catching
-  # Unadmissable dimensionality
-  if(p_a > p){
-    stop("The amount of nonzero coefficients (p_a) must be equal or smaller than the total dimensionality (p)")
-  }
-  
   # Unadmissable type of DGP (auto to bernoulli)
   if(type != "bernoulli" & type != "latent"){
     warning("No correct type of DGP specified (bernoulli, latent), type set to bernoulli")
@@ -29,15 +29,9 @@ binary_reg_dgp2 <- function(n, p, p_a, beta, beta0, sigma_in = NULL, dirty = 0, 
   if(dirty > 0.5 | dirty < 0){
     stop("The amount of contamination (dirty) must be set at min. 0 or max. 0.5")
   }
-  
-  # Nonconformable beta with p_a
-  if(length(beta) != p){
-    stop("The dimensionality of the supplied beta vector is not equal to that of true supplied dimensionality (p_a)")
-  }
-  
   # v_outlier
-  if(v_outlier != 0 & v_outlier != 1){
-    stop("The outlier type should be 0 or 1 (= KHF method)")
+  if(v_outlier != "VW" & v_outlier != "KHF"){
+    stop("The outlier type should be VW or KHF")
   }
   
   #### CLEAN Predictor (X) data
@@ -136,8 +130,8 @@ binary_reg_dgp2 <- function(n, p, p_a, beta, beta0, sigma_in = NULL, dirty = 0, 
       # , drop = FALSE to maintain a matrix (??? to do ?)
     }
     
-    ## Vertical outliers
-    if(v_outlier == 1){
+    ## Vertical outliers following KHF
+    if(v_outlier == "KHF"){
       y[y == 0][1:n_contam] <- 1 
     }
     
