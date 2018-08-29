@@ -8,19 +8,28 @@
 #  this robust method can indeed handle both situations, as a check. Some plotting was also done
 
 # Seed
+# set.seed(1234)
 
+# CHOOSE TO SET BETA POS OR NEG
+pos <- TRUE # set to FALSE for negative beta
+
+# Setting beta on user setting
+beta <- ifelse(pos == TRUE,
+               yes = 1.5,
+               no = -1.5)
+# beta = 1.5 works good, see later to see that beta = 1 give some trouble sometimes
 
 ## Generating data
 # My idea of vertical outliers  
 train_VW <- binary_reg_dgp2(n = 100, 
-                          beta = 1.3, 
+                          beta = beta, 
                           beta0 = 0.2, 
                           dirty = 0.1, 
                           v_outlier = "VW",
                           type = "bernoulli") 
 # KHF (2017) idea of outliers
 train_KHF <- binary_reg_dgp2(n = 100, 
-                          beta = 1, 
+                          beta = beta, 
                           beta0 = 0.2,
                           dirty = 0.1,
                           v_outlier = "KHF",
@@ -228,7 +237,7 @@ for(i in 1:length(beta)){
 for(i in 1:length(beta)){
   boxplot(coefs_wby[[i]], 
           ylim = ylim,
-          main = "Box plot of simulation using MLE")
+          main = "Box plot of simulation using WBY")
   points(x = c(1, 2),
          y = c(beta0, beta[i]),
          col = "red",
