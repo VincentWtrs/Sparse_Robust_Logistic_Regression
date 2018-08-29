@@ -1,5 +1,7 @@
 ### Type of outliers example ###
 
+## PART 1: Single fit using Weighted Bianco-Yohai and MLE ##
+
 # EXPLANTION: in their paper Kurnatz et al. (2017) propose the following outlier sytem, I think it does not make sense...
 #  hence I show an univariate simple example (p = 1) where their outliers do not really cause any trouble for the current 
 #  methods but mine do. First I generate some data according to my idea of outliers and their idea of outliers using the ...
@@ -164,15 +166,24 @@ par(mfrow = c(1, 1))
 
 
 ## TEMPORARY CONCLUSION: It can be seen that the my (VW) type of outliers cause a lot more trouble to the estimators...
-# to the estimators, even the WBY estimator sometimes fails. To get an idea about the frequency of this failutre we 
+# to the estimators, even the WBY estimator sometimes fails. To get an idea about the frequency of this failutre we.
+# Only for the case where beta < 0, does the KHF method seemingly (unknowingly?) give the correct type of problem-causing...
+# outliers. The strange beta case for positive and negative values is investigated through a simulation study running ..
+# multiple runs for multiple betas
+
+#############################################################################################################################
+#############################################################################################################################
+
+
+## PART 2: Simulation study using multiple values of beta ##
 
 
 # Setting simulation settings
-n <- 100
-runs <- 49
-beta0 <- 0.2
-beta <- c(seq(from = 0.1, to = 1.8, by = 0.2))
-ylim <- c(min(beta) - 0.5, max(beta) + 2)
+n <- 100 # Sample size
+runs <- 49 # Amount of simulation runs
+beta0 <- 0.2 # intercept
+beta <- c(seq(from = 0.1, to = 1.8, by = 0.2)) # Beta range
+ylim <- c(min(beta) - 0.5, max(beta) + 2) # ylim range for plotting based on the betas
 
 # Creating data for each run (i.e. the sampling variability)
 data <- lapply(beta, FUN = function(x) lapply(1:runs, FUN = function(z) binary_reg_dgp2(n = 100, 
@@ -244,3 +255,7 @@ for(i in 1:length(beta)){
          pch = 20, # Red filled dot
          cex = 2) # size = 2
 }
+
+## CONCLUSION: The MLE completely fails in all contamination settings. The WBY does better but only for quite...
+# large true betas. If below 1.2-ish they seem to get severly skewed towards 0, even though 1.2 is a quite big...
+# value, certainly in terms of odds ratio (exp(beta)). 
