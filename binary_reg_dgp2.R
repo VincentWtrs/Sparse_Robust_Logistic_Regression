@@ -157,7 +157,7 @@ binary_reg_dgp2 <- function(n, beta, beta0 = 1, sigma_in = NULL, dirty = 0, type
       }
     }
     
-    ## Vertical outliers following KHF (I don't recommend this)
+    ## Vertical outliers following KHF (I don't recommend this, mainly for testing purposes!)
     if(v_outlier == "KHF"){
       y[y == 0][1:n_contam] <- 1 
     }
