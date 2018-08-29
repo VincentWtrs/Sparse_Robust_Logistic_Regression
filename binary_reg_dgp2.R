@@ -131,7 +131,7 @@ binary_reg_dgp2 <- function(n, beta, beta0 = 1, sigma_in = NULL, dirty = 0, type
       }
       if(beta < 0){
         # If beta negative then add outliers far right at y = 1 because Sigmoid is mirrored
-        X_a[y == 1] <- rnorm(n = n_contam, mean = 20, sd = 1)
+        X_a[y == 1][1:n_contam] <- rnorm(n = n_contam, mean = 20, sd = 1)
       }
     } else if(p != 1){
       # Creating indicator variable that matches with y
