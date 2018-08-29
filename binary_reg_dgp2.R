@@ -1,4 +1,4 @@
-binary_reg_dgp2 <- function(n, beta, beta0 = 1, sigma_in = NULL, dirty = 0, type = "latent", v_outlier = "VW", test){
+binary_reg_dgp2 <- function(n, beta, beta0 = 1, sigma_in = NULL, dirty = 0, type = "latent", v_outlier = "VW", test, outlier_mean = 20, outlier_sd = 1){
   
   ## binary_reg_dgp2(): generates data following KHF (2017) based on Bernoulli, parametrized by structural eta
   ## INPUTS: 
@@ -10,6 +10,8 @@ binary_reg_dgp2 <- function(n, beta, beta0 = 1, sigma_in = NULL, dirty = 0, type
   # type: type of DGP: "latent" is the one based on latent factors as in KHF, "bernoulli" is the one based on Bernoulli parameter parametrized by eta
   # v_outlier: if additional vertical outliers are added, KHF (2017) advocate this approach, I think this does not make much sense
   # test: if a test set needs to be created, this just overrides all settings to have a clean dataset
+  # outlier_mean: mean of the outlying N(mean , sd)-distributed outlying points, default is 20
+  # outlier_sd: standard deviation of the N(mean , sd)-distributed outlying points, default is 1
   
   # setting seed? Stil not 100% sure on this, it will allow us to fully reconstruct based on the seed...
   
@@ -103,13 +105,17 @@ binary_reg_dgp2 <- function(n, beta, beta0 = 1, sigma_in = NULL, dirty = 0, type
   # y: LATENT DGP
   if(type == "latent"){
     # Creating Gaussian error
-    e <- rnorm(n = n, mean = 0, sd = 1)
+    e <- rnorm(n = n, 
+               mean = 0, 
+               sd = 1)
     
     # Creating latent continuous outcome
     y_cont <- eta + e
     
     # Dichotomizing
-    y <- ifelse(y_cont > 0, yes = 1, no = 0) # BINARY OUTCOME
+    y <- ifelse(y_cont > 0, 
+                yes = 1, 
+                no = 0) # BINARY OUTCOME
   }
   
   # Saving proportion of 0/1
@@ -127,11 +133,15 @@ binary_reg_dgp2 <- function(n, beta, beta0 = 1, sigma_in = NULL, dirty = 0, type
     if(p == 1){
       if(beta > 0){
         # If beta positive then add outliers far right at y = 0
-        X_a[y == 0][1:n_contam] <- rnorm(n = n_contam, mean = 20, sd = 1)
+        X_a[y == 0][1:n_contam] <- rnorm(n = n_contam, 
+                                         mean = outlier_mean, 
+                                         sd = outlier_sd)
       }
       if(beta < 0){
         # If beta negative then add outliers far right at y = 1 because Sigmoid is mirrored
-        X_a[y == 1][1:n_contam] <- rnorm(n = n_contam, mean = 20, sd = 1)
+        X_a[y == 1][1:n_contam] <- rnorm(n = n_contam, 
+                                         mean = outlier_mean, 
+                                         sd = outlier_sd)
       }
     } else if(p != 1){
       # Creating indicator variable that matches with y
@@ -141,7 +151,9 @@ binary_reg_dgp2 <- function(n, beta, beta0 = 1, sigma_in = NULL, dirty = 0, type
       # Because, given N(20, 1)-outliers, we need them put at y == 0 if beta_j > 0 and at y == 1 if beta_j < 0
       
       for(i in 1:p_a){
-        X_a[y == outlier_side[i], i][1:n_contam] <- rnorm(n = n_contam, mean = 20, sd = 1)
+        X_a[y == outlier_side[i], i][1:n_contam] <- rnorm(n = n_contam, 
+                                                          mean = outlier_mean, 
+                                                          sd = outlier_sd)
       }
     }
     
