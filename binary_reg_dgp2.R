@@ -13,6 +13,8 @@ binary_reg_dgp2 <- function(n, beta, beta0 = 1, sigma_in = NULL, dirty = 0, type
   
   # setting seed? Stil not 100% sure on this, it will allow us to fully reconstruct based on the seed...
   
+  # to do: load necessary packages for rmvnorm
+  
   # Extracting dimensionalities from the beta vector
   p <- length(beta) # Total dimensionality WITHOUT INTERCEPT
   p_a <- sum(beta != 0) # Dimensionality INFORMATIVE part of the DGP
@@ -123,14 +125,27 @@ binary_reg_dgp2 <- function(n, beta, beta0 = 1, sigma_in = NULL, dirty = 0, type
     
     # Contaminating using N(20, 1) (Different case if single predictor versus multiple predictors)
     if(p == 1){
-      X_a[y == 0][1:n_contam] <- rnorm(n = n_contam, mean = 20, sd = 1)
+      if(beta > 0){
+        # If beta positive then add outliers far right at y = 0
+        X_a[y == 0][1:n_contam] <- rnorm(n = n_contam, mean = 20, sd = 1)
+      }
+      if(beta < 0){
+        # If beta negative then add outliers far right at y = 1 because Sigmoid is mirrored
+        X_a[y == 1] <- rnorm(n = n_contam, mean = 20, sd = 1)
+      }
     } else if(p != 1){
-      X_a[y == 0, ][1:n_contam, ] <- rmvnorm(n = n_contam, mean = rep(20, p_a))
-      # (sigma default hence I-matrix (independent))
-      # , drop = FALSE to maintain a matrix (??? to do ?)
+      # Creating indicator variable that matches with y
+      outlier_side <- ifelse(beta > 0,
+                             yes = 0,
+                             no  = 1)
+      # Because, given N(20, 1)-outliers, we need them put at y == 0 if beta_j > 0 and at y == 1 if beta_j < 0
+      
+      for(i in 1:p_a){
+        X_a[y == outlier_side[i], i][1:n_contam] <- rnorm(n = n_contam, mean = 20, sd = 1)
+      }
     }
     
-    ## Vertical outliers following KHF
+    ## Vertical outliers following KHF (I don't recommend this)
     if(v_outlier == "KHF"){
       y[y == 0][1:n_contam] <- 1 
     }
