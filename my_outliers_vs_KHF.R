@@ -7,21 +7,24 @@
 #  while mine are, then using glmrob(, method = "WBY") which is weighted Bianco-Yohai robust estimation, I run the thing again, ...
 #  this robust method can indeed handle both situations, as a check. Some plotting was also done
 
+# Seed
 
 
 ## Generating data
 # My idea of vertical outliers  
 train_VW <- binary_reg_dgp2(n = 100, 
-                          beta = 1, 
-                          beta0 = 1, 
+                          beta = 1.3, 
+                          beta0 = 0.2, 
                           dirty = 0.1, 
-                          v_outlier = "VW") 
+                          v_outlier = "VW",
+                          type = "bernoulli") 
 # KHF (2017) idea of outliers
 train_KHF <- binary_reg_dgp2(n = 100, 
                           beta = 1, 
-                          beta0 = 1,
+                          beta0 = 0.2,
                           dirty = 0.1,
-                          v_outlier = "KHF")
+                          v_outlier = "KHF",
+                          type = "bernoulli")
 
 ## Fitting logistic regression models with MLE (ordinary)
 # My of outliers as data
@@ -32,11 +35,11 @@ logit_KHF <- glm(y ~ X, data = train_KHF, family = "binomial")
 
 # Checking coefficients
 coef(logit_VW) # Sign has turned versus true
-coef(logit_KHF) # Same sign
+coef(logit_KHF) # Same sign, almost exactly true values
 
 # Checking loss (Negative loglik)
--logLik(logit_VW) # 60.56415
--logLik(logit_KHF) # 37.76741 (BEST, minimizing risk/loss) -> Hence probably not real outliers
+-1 * (logLik(logit_VW)) # 57.8694
+-1 * (logLik(logit_KHF)) # 48.2235 (BEST, minimizing risk/loss) -> Hence probably not real outliers
 
 ## Plotting logistic fit
 # Generating predicted probabilities along a fine grid of x values
@@ -55,14 +58,14 @@ xlim <- c(-80, 80)
 par(mfrow = c(1, 2))
 plot(train_VW$X, train_VW$y, 
      xlim = xlim,
-     main = "My (VW) outliers (NONrobust fit)", 
+     main = "VW outliers (Non-robust fit)", 
      xlab = "X",
      ylab = "Probability")
 lines(x = x_grid, y = logit_VW_preds)
 
 plot(train_KHF$X, train_KHF$y, 
      xlim = xlim,
-     main = "KHF Outliers (NONrobust fit)", 
+     main = "KHF Outliers (Non-robust fit)", 
      xlab = "X",
      ylab = "Probability")
 lines(x = x_grid, y = logit_KHF_preds)
@@ -73,42 +76,38 @@ xlim <- c(-25, 25)
 par(mfrow = c(1, 2))
 plot(train_VW$X, train_VW$y,
      xlim = xlim,
-     main = "My (VW) outliers (NONrobust fit)", 
+     main = "VW outliers (Non-robust fit)", 
      xlab = "X",
      ylab = "Probability")
 lines(x = x_grid, y = logit_VW_preds)
 
 plot(train_KHF$X, train_KHF$y, 
      xlim = xlim,
-     main = "KHF Outliers (NONrobust fit)", 
+     main = "KHF Outliers (Non-robust fit)", 
      xlab = "X",
      ylab = "Probability")
 lines(x = x_grid, y = logit_KHF_preds)
 par(mfrow = c(1, 1))
 
 
-## Trying glmRob
+## Fitting Weighted Bianco-Yohai (glmrob, WBY)
 logit_rob_VW <- glmrob(y ~ X, data = train_VW, family = "binomial", method = "WBY")
 logit_rob_KHF <- glmrob(y ~ X, data = train_KHF, family = "binomial", method = "WBY")
 # Ignore warnings
 
-coef(logit_rob_VW)
+# Checking coefficients
+coef(logit_rob_VW) 
 coef(logit_rob_KHF)
 
+## Plotting results
 # Predictions
 logit_rob_VW_preds <- predict(logit_rob_VW, newdata = data.frame(X = x_grid), type = "response") # These don't want to work for some reason:
 logit_rob_KHF_preds <- predict(logit_rob_KHF, newdata = data.frame(X = x_grid), type = "response") # These don't want to work for some reason:
 
 # MANUALLY getting predictions
 logit_rob_VW_preds <- exp(coef(logit_rob_VW)[1] + coef(logit_rob_VW)[2] * x_grid)/(1 + exp(coef(logit_rob_VW)[1] + coef(logit_rob_VW)[2] * x_grid))
-plot(x = x_grid, 
-     y = logit_rob_VW_preds,
-     type = "l")
-
 logit_rob_KHF_preds <- exp(coef(logit_rob_KHF)[1] + coef(logit_rob_KHF)[2] * x_grid)/(1 + exp(coef(logit_rob_KHF)[1] + coef(logit_rob_KHF)[2] * x_grid))
-plot(x = x_grid, 
-     y = logit_rob_KHF_preds,
-     type = "l")
+
 
 # Plotting (Robust, Zoomed-out)
 xlim <- c(-80, 80)
@@ -116,7 +115,7 @@ par(mfrow = c(1, 2))
 plot(x = train_VW$X, 
      y = train_VW$y,
      xlim = xlim,
-     main = "My (VW) outliers (ROBUST)", 
+     main = "VW outliers (WBY fit)", 
      xlab = "X",
      ylab = "Probability")
 lines(x = x_grid, 
@@ -125,7 +124,7 @@ lines(x = x_grid,
 plot(x = train_KHF$X, 
      y = train_KHF$y,
      xlim = xlim,
-     main = "KHF Outliers (ROBUST)",
+     main = "KHF Outliers (WBY fit)",
      xlab = "X",
      ylab = "Probability")
 lines(x = x_grid, 
@@ -138,7 +137,7 @@ par(mfrow = c(1, 2))
 plot(x = train_VW$X, 
      y = train_VW$y, 
      xlim = xlim,
-     main = "My (VW) outliers (ROBUST)", 
+     main = "VW outliers (WBY fit)", 
      xlab = "X",
      ylab = "Probability")
 lines(x = x_grid, 
@@ -147,9 +146,92 @@ lines(x = x_grid,
 plot(x = train_KHF$X, 
      y = train_KHF$y, 
      xlim = xlim,
-     main = "KHF Outliers (ROBUST)", 
+     main = "KHF Outliers (WBY fit)", 
      xlab = "X",
      ylab = "Probability")
 lines(x = x_grid, 
       y = logit_rob_KHF_preds)
 par(mfrow = c(1, 1))
+
+
+## TEMPORARY CONCLUSION: It can be seen that the my (VW) type of outliers cause a lot more trouble to the estimators...
+# to the estimators, even the WBY estimator sometimes fails. To get an idea about the frequency of this failutre we 
+
+
+# Setting simulation settings
+n <- 100
+runs <- 49
+beta0 <- 0.2
+beta <- c(seq(from = 0.1, to = 1.8, by = 0.2))
+ylim <- c(min(beta) - 0.5, max(beta) + 2)
+
+# Creating data for each run (i.e. the sampling variability)
+data <- lapply(beta, FUN = function(x) lapply(1:runs, FUN = function(z) binary_reg_dgp2(n = 100, 
+                                                                                        beta = x, #!
+                                                                                        beta0 = beta0, 
+                                                                                        dirty = 0.1, 
+                                                                                        v_outlier = "VW",
+                                                                                        type = "bernoulli")))
+# Double lapply, for each beta, for and multiple runs to get sampling variability
+
+
+# Fitting logistic by MLE
+logit_mle <- lapply(1:length(beta), FUN = function(x) lapply(1:runs, FUN = function(z) glm(y ~ X,
+                                                                                           family = "binomial",
+                                                                                           data = data[[x]][[z]])))
+
+# Gathering coefficients MLE
+coefs_mle <- vector("list", length = length(beta))
+for(i in 1:length(beta)){
+  coefs_mle[[i]] <- matrix(NA, nrow = runs, ncol = 2)
+  colnames(coefs_mle[[i]]) <- c("Intercept", "beta1")
+  for(j in 1:runs){
+    coefs_mle[[i]][j, ] <- coef(logit_mle[[i]][[j]])
+  }
+}
+
+
+## Plotting MLE
+# Boxplot
+for(i in 1:length(beta)){
+  boxplot(coefs_mle[[i]], 
+          ylim = ylim,
+          main = "Box plot of simulation using MLE")
+  points(x = c(1, 2),
+         y = c(beta0, beta[i]),
+         col = "red",
+         pch = 20, # Red filled dot
+         cex = 2) # size = 2
+}
+
+
+
+# Fitting WBY
+logit_wby <- lapply(1:length(beta), FUN = function(x) lapply(1:runs, FUN = function(z) glmrob(y ~ X,
+                                                                                           family = "binomial",
+                                                                                           method = "WBY",
+                                                                                           data = data[[x]][[z]])))
+
+# Gathering coefficients WBY
+coefs_wby <- vector("list", length = length(beta))
+for(i in 1:length(beta)){
+  coefs_wby[[i]] <- matrix(NA, nrow = runs, ncol = 2)
+  colnames(coefs_wby[[i]]) <- c("Intercept", "beta1")
+  for(j in 1:runs){
+    coefs_wby[[i]][j, ] <- coef(logit_wby[[i]][[j]])
+  }
+}
+
+
+## Plotting WBY
+# Boxplot
+for(i in 1:length(beta)){
+  boxplot(coefs_wby[[i]], 
+          ylim = ylim,
+          main = "Box plot of simulation using MLE")
+  points(x = c(1, 2),
+         y = c(beta0, beta[i]),
+         col = "red",
+         pch = 20, # Red filled dot
+         cex = 2) # size = 2
+}
