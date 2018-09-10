@@ -1,0 +1,259 @@
+---
+title: "Outlier in Linear Regression"
+author: "Vincent Wauters"
+date: "2018"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Loading libraries:
+```{r loading libraries}
+library(enetLTS)
+library(robustbase)
+library(mvtnorm)
+library(MASS)
+library(robust)
+library(MatrixModels)
+library(glmnet)
+library(caret)
+```
+
+# Linear Models
+## Linear - Low Dimensional (LD)
+### Linear - LD - No Outliers
+
+In a first step data is generated without outliers. A simple data generating process (DGP) $y = \beta_0 + \beta_1 * x_1 + \varepsilon$.
+```{r linear_model_ld_dgp}
+## Creating data
+# Setting sample size
+n <- 500
+
+# Setting Coviates (Simple fixed design)
+x1 <- c(rep(x = 10, times = floor(n/2)), rep(x = 20, times = floor(n/2)))
+
+# Setting beta0, beta1
+beta0 <- 100
+beta1 <- 10
+
+# Defining error
+e <- rnorm(n = n,
+            mean = 0,
+            sd = 5)
+
+# Defining the outcome
+y <- beta0 + beta1 * x1 + e
+```
+
+__Estimating using OLS (MLE)__
+
+Estimating using ordinary least squares (or MLE, same for the coefficients, only different for the variance estimate).
+
+```{r linear_OLS_ld_clean}
+## Fitting by OLS (~ MLE)
+lm1 <- lm(y ~ x1) # (Includes intercept)
+summary(lm1)
+
+# Setting plotting params
+xlim1 <- c(0, 35)
+ylim1 <- c(0, 350)
+
+## Plotting
+plot(x = x1,
+     y = y,
+     xlim = xlim1,
+     ylim = ylim1,
+     main = "No outliers, OLS fit")
+abline(reg = lm1)
+```
+
+Of course this is not problematic at all as is well known.
+
+__USING LTS__
+
+A robust estimator for the linear model, the __Least Trimmed Squares (LTS)__ estimator can also be used, and should give the same results. The function `ltsReg()` (capital R) from the `robustbase` can be used. The default $\alpha = 0.5$ this leads to a $h$ sample size of $h = \frac{(n + p + 1}{2}$ integer division! So here it would be $h = \frac{500 + 1 + 1}{2} = 251$. This can be checked getting `lts1$quan`, and to see which observations belong in the optimal subset of size $h = 251$, one can get `lts1$best´.
+```{r linear_LTS_ld_clean}
+# Fitting LTS
+lts1 <- ltsReg(y ~ x1, alpha = 0.5) # Default
+summary(lts1)
+
+# Fitting LTS with less trimming (only 5 percent)
+lts2 <- ltsReg(y ~ x1, alpha = 0.95) # Closer to OLS
+summary(lts2)
+
+## Plotting LTS
+plot(x = x1,
+     y = y,
+     xlim = xlim1,
+     ylim = ylim1,
+     main = "Clean data: OLS vs. LTS")
+abline(lts1, col = "black") # LTS Line
+abline(lm1, col = "gray", lwd = 2, lty = 2)
+legend("bottomright",
+       legend = c("OLS", "LTS"),
+       lty = 1:2,
+       lwd = 1:2,
+       col = c("black", "gray"))
+```
+
+Note in the summary of `lts1` the residual standard error has 483 degrees of freedom. How does one arrive at this number, for the OLS fitted model, the degrees of freedom are $500 - 1 - 1 = 498$, i.e. one for the $\beta_1$ and one for estimating $\sigma^2$. In the LTS case there are probably less observations, even after reweighting. One can check this by counting the amount of 1-weights in `lts1$lts.wt` using `sum(lts1$lts.wt)`. (or using `lts1$raw.weights`? that's not 100% clear).
+
+Visually the fit from LTS and OLS are basically the same. We can -since there are no outliers actually- easily caculate the mean squared error (MSE) loss on the trainning set:
+
+```{r linear_ld_clean_loss_comparison}
+# OLS
+lm1_loss <- mean((lm1$fitted.values - y)^2)
+lm1_loss
+
+# LTS
+lts1_loss <- mean((lts1$fitted.values - y)^2)
+lts1_loss
+```
+
+In terms of loss the model using OLS is slightly better, they actually both to almost equally well.
+
+__CONCLUSION: Yes in the linear low dimensional case, LTS seem to do equally good (visually at least) as OLS in clean case__
+
+### Linear - LD - With outliers
+Let's now introduce some __leverage points__: these are points that are outlying in the X direction. There are __good leverage points__ which have outlying X values but have a y-value that corresponds to the value that would be taken on by the relation follows from the other points. __Bad leverage points__ have outlying X values and have a non-fitting y value. 
+
+Bad leverage points will be introduced, set at the coordinate (30, 150 + $e$) with $e$ coming from a $N(0, \sigma = 5)$ distribution or just put otherwise $y \sim N(150, 5)$. This is certainly a bad leverage point because a predicted reasonable value for $x1 = 30$ would be around 400, given the coefficients of the DGP: $\hat{y} = 100 + 30 * 10 = 400$, hence $(30, 400)$ would be a point consistent with the DGP.
+
+```{r bad_leverage_point_fitting_plotting}
+# Introducing leverage points
+n_outlier <- 50 # Amount of outliers
+n_total <- n + n_outlier
+
+# Making them bad outliers
+outliers <- rnorm(mean = 150, sd = 5, n = n_outlier)
+
+x_outliers <- rep(30, length = n_outlier)
+y_outliers <- outliers
+
+# Plotting
+plot(x = x1,
+     y = y,
+     xlim = c(0, 35),
+     ylim = c(0, 350),
+     main = "OLS fit on regular data, bad leverage points added to display")
+points(x = x_outliers,
+       y = y_outliers,
+       col = "red")
+abline(lm1)
+```
+
+Adding the bad levrage points to our vectors `y` and `x1` and fitting OLS and LTS on this new data, we will see the merits of robust regression methods. To compare, also the fit on the clean data only is shown. Note that we are sampling now with differently sized datasets, but this will not matter that much.
+
+```{r bad_leverage_ols_lts}
+# Combining dataset with dirty data
+x1 <- c(x1, x_outliers)
+y <- c(y, y_outliers)
+
+# Fitting OLS
+lm2 <- lm(y ~ x1)
+summary(lm2)
+
+# Fitting LTS
+lts2 <- ltsReg(y ~ x1)
+summary(lts2)
+
+# Plotting
+plot(x = x1, 
+     y = y,
+     main = "Impact of bad leverage points")
+points(x = x_outliers,
+       y = y_outliers,
+       col = "red")
+abline(lm1, col = "gray", lwd = 2) # OLS on clean data only
+abline(lm2, col = "black") # OLS on all data
+abline(lts2, col = "red") # LTS on all dat
+legend("topright",
+       legend = c("OLS no outliers",
+                  "OLS outliers",
+                  "LTS outliers"),
+       lty = 1,
+       col = c("gray", "black", "red"))
+# OLS on the non-outlying points versus LTS: same, good!
+```
+
+Yes indeed it can be seen that the OLS estimator fails completely and that the LTS estimator succeeds to fitting almost perfectly equal to to an OLS fit on the clean data only, the LTS and OLS (clean) line line up almost perfectly.
+
+Taking a better look at the coefficients from the LTS estimator:
+```{r bad_leverage_lts_detail}
+summary(lts2)
+coef(lts2)
+
+# Real betas:
+beta0; beta1
+```
+
+The LTS is very close to the true parameter values, which suggests its consistency.
+
+## Linear - High Dimensional
+### Linear - HD - No Outliers
+
+Let's now make something that is a lot more high dimensional, something with p = 200 (with intercept: 201), but only 10 first betas are nonzero, and the sample size stays the same at 500, __this example is thus NOT n < p!__
+
+```{r linear_model_dgp_hd}
+## Setting parameters
+n # Keeping same sample size = 500
+p_a <- 10 # True dimensionality
+p_b <- 190 # Uninformative
+p <- p_a + p_b # Total dimensionality
+
+## Creating data
+beta0 <- 1
+beta <- c(beta0, rep(1, p_a), rep(0, p_b))
+
+# Creating covariates
+X <- rmvnorm(n = n,
+             mean = rep(0, p),
+             sigma = diag(p))
+# Adding intercept column
+X <- cbind(rep(1, times = n1), X)
+
+# Adding names
+colnames(X) <- paste0("X", 0:p)
+  
+# Creating outcome
+y <- X %*% beta + rmvnorm(n = n1,
+                          mean = 0)
+
+# Creating dataframe used for FITTING
+data <- data.frame(cbind(y, X[, -1])) # 200 predictors (no intercept + 1 -> 201 cols)
+names(data)[1] <- "y" # Setting name of y (first col)
+```
+
+For some reason, the `ltsReg()` doesn't work with formula for some reason, so I used `y ~ .`.
+
+```{r linear_model_OLS_LTS}
+## Fitting
+# Making formula
+formula1 <- paste("y", paste0("X", 1:p, collapse = " + "), sep = " ~ ")
+
+# OLS
+lm3 <- lm(formula = formula1, data = data)
+summary(lm3)
+coef(lm3)
+
+# LTS (takes a while)
+lts3 <- ltsReg(y ~ ., data = data) # formula = formula1 did not work!
+summary(lts3)
+coef(lts3)
+
+## MSE on the betas
+# OLS
+sum((coef(lm3) - beta)^2)
+# LTS
+sum((coef(lts3) - beta)^2)
+```
+
+The OLS estimator by definition will fail since it does not have the built-in possibility to set coefficients to 0, hence it will probably distribute the effects -erronuously- over all the 190 out of 200 noninformative predictors. The same should hold for the LTS estimator actually but and sadly it is not better off, the MSE of the $\boldsymbol{\beta}$ is a lot higher for the LTS in this case.
+
+## Linear - Ultra High Dimensional
+
+Ultrahigh dimensional cases are defined as cases where the amount of variables is bigger than the amount of observations. When fitting OLS, this goes wrong, and the same holds for LTS. The case for LTS is even more severe as `ltsReg()` refuses (fails?) to fit when $n$ is not twice as large as $p$.
