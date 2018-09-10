@@ -43,21 +43,21 @@ selectbest10_ANNOTATED <- function (x, y, family, h, hsize, alpha, lambda, nsamp
   # Binomial Case
   if (family == "binomial") {
     obj_sorted <- sort(obj, decreasing = TRUE, index.return = TRUE) # Higher is better!!
+    # obj°sorted is still vector of length = nsamp (500) with $x: objective function value, $ix: indices
     
   # Gaussian Case
   } else if (family == "gaussian") {
     obj_sorted <- sort(obj, decreasing = FALSE, index.return = TRUE) # MSE: lower is better!!
-  } # obj°sorted is still vector of length = nsamp (500) with $x: objective, $ix: indices
+  } # obj°sorted is still vector of length = nsamp (500) with $x: objective function value, $ix: indices (subsample indices: in {1, ..., 500})
   
   ## Gathering the s1 (10) highest objective functions
-  obj <- obj_sorted$x[1:s1] # Getting 10 highest (may include inf)
+  obj <- obj_sorted$x[1:s1] # Getting 10 highest (may include - (?) inf)
   s1_new <- length(obj[!is.infinite(obj)]) # s1_new: s1 excluding the infs (will be equal or smaller than s1!)
   idx <- obj_sorted$ix[1:s1_new] # Gathering the INDICES (ids) OF THE BEST 10 subsets
   
   # Some error throwing if all s1 models had inf, hence s1_new == 0:
   if (s1_new == 0) {
-    stop(paste("Model is not suitable for alpha", alpha, 
-               "lambda", lambda, "for this data set. Choose another lambda."))
+    stop(paste("Model is not suitable for alpha", alpha, "lambda", lambda, "for this data set. Choose another lambda."))
   }
   
   ## Gathering the h!!! observation indices for the best s1_new (10, often) best subsets
@@ -73,5 +73,8 @@ selectbest10_ANNOTATED <- function (x, y, family, h, hsize, alpha, lambda, nsamp
       indx <- subsets[[idx[c]]]$indx
     }, idx, subsets)
   } # bestindex is a list of length s1_new (10) with each element having index of h (75) observations
-  return(list(idxbest = bestindex, s1_new = s1_new, subsets = subsets, index.subsets = index.subsets))
+  return(list(idxbest = bestindex, 
+              s1_new = s1_new, 
+              subsets = subsets, 
+              index.subsets = index.subsets))
 }
