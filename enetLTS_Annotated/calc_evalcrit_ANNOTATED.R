@@ -40,7 +40,7 @@ calc_evalCrit <- function(rowind, combis_ind, alphas, lambdas, index, xx, yy, nf
     ## For Binomial - logistic
     if (family == "binomial") {
       # Folds for "0" outcomes (Need to have similar 0/1 balance)
-      folds0 <- cvTools:::cvFolds(length(y[y == 0]), # cvTools::cvFolds
+      folds0 <- cvTools:::cvFolds(n = length(y[y == 0]), # cvTools::cvFolds
                                   K = nfold,  
                                   R = 1, # 1 replication, the replications are done manually in the loop that is defined in this function
                                   type = "random") # Default: random folds
@@ -49,7 +49,7 @@ calc_evalCrit <- function(rowind, combis_ind, alphas, lambdas, index, xx, yy, nf
       # So $subset is basically a permutation (shuffled) of the indices
       
       # Folds for "1" outcomes
-      folds1 <- cvTools:::cvFolds(length(y[y == 1]), 
+      folds1 <- cvTools:::cvFolds(n = length(y[y == 1]), 
                                   K = nfold, 
                                   R = 1, 
                                   type = "random")
@@ -108,8 +108,8 @@ calc_evalCrit <- function(rowind, combis_ind, alphas, lambdas, index, xx, yy, nf
                            family, 
                            alpha = alpha, 
                            lambda = lambda/hpen, # The lambda is scaled! (Probably different definition ?) #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-                           standardize = FALSE, 
-                           intercept = FALS)
+                           standardize = FALSE,  # Is this okay ?!!! because the data is not standardized before the fold!
+                           intercept = FALSE) # This will most likely be problematic as well
         # LOOKS LIKE THEY DON'T USE THE LAMBDA WARM STARTS BECAUSE IT'S CALLED AGAIN EACH TIME
       }, error = function(err) { # Defining error function or so
         error <- TRUE
@@ -136,7 +136,8 @@ calc_evalCrit <- function(rowind, combis_ind, alphas, lambdas, index, xx, yy, nf
           # Loss is also negative loglik = squared loss y - y_hat (y_hat = X*beta_hat)
           loss[folds$which == f] <- ytest - xtest %*% matrix(trainmod$beta) # ORIGINAL
           #loss[folds$which == f] <- ytest - xtest %*% matrix(coef(traindmod, s = lamda/h)) # Potential improvement (???)
-        
+         
+        # PROBLEM??? Why no intercept added here, yes ofcourse because the intercept == FALSE but it does matter for binomial!? Isn't it
       }
     } # END OF FOLD LEVEL
     
