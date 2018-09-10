@@ -28,14 +28,16 @@ train_VW <- binary_reg_dgp2(n = 100,
                           beta0 = 0.2, 
                           dirty = 0.1, 
                           v_outlier = "VW",
-                          type = "bernoulli") 
+                          type = "bernoulli",
+                          outlier_mean = 10) 
 # KHF (2017) idea of outliers
 train_KHF <- binary_reg_dgp2(n = 100, 
                           beta = beta, 
                           beta0 = 0.2,
                           dirty = 0.1,
                           v_outlier = "KHF",
-                          type = "bernoulli")
+                          type = "bernoulli",
+                          outlier_mean = 10)
 
 ## Fitting logistic regression models with MLE (ordinary)
 # My of outliers as data
@@ -259,3 +261,6 @@ for(i in 1:length(beta)){
 ## CONCLUSION: The MLE completely fails in all contamination settings. The WBY does better but only for quite...
 # large true betas. If below 1.2-ish they seem to get severly skewed towards 0, even though 1.2 is a quite big...
 # value, certainly in terms of odds ratio (exp(beta)). 
+
+## SPECULATION: This worrying behaviour of the WBY might have to do with the still M-estimator style? type. ...
+# Might also have to do with the properties of the outliers.
