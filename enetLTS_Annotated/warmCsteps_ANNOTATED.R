@@ -54,17 +54,18 @@ warmCsteps <- function(x, y, h, n, p, family, alphas, lambdas, hsize, nsamp, s1,
                                                         para = para, 
                                                         seed = seed)
     # Gathering results (initiation)
-    index1_al <- beginning.Cstep.with500$index # h indices for alphas
-    index1_la <- beginning.Cstep.with500$index # h indices for lambdas
-    resid1_al <- beginning.Cstep.with500$resid # n residuals for alphas
-    resid1_la <- beginning.Cstep.with500$resid # n residuals for lambdas
+    index1_al <- beginning.Cstep.with500$index # h indices for alphas (# weird)
+    index1_la <- beginning.Cstep.with500$index # h indices for lambdas (# weird)
+    resid1_al <- beginning.Cstep.with500$resid # n residuals for alphas (# weird)
+    resid1_la <- beginning.Cstep.with500$resid # n residuals for lambdas (# weird)
     
     ### ITERATIVELY (WARM) STARTING h-SUBSET SEARCH FOR DIFFERENT LAMBDA/ALPHA COMBINATIONS (This structure is quite complex)
     ## For each alpha
     for (al in 1:length(alphas)) {
-      alpha <- alphas[al] # Get current alpha value
+      alpha <- alphas[al] # Get current alpha value (al = some index: 1:length(alphas))
       index1_la <- index1_al # Some redefining because for each new alpha, one "starts over" in some way
       resid1_la <- resid1_al # Some redefining because for each new alpha, one "starts over" in some way
+      
       # Case: single lambda (maybe skip)
       if (length(lambdas) == 1) {
         newindex_la <- index1_la 
@@ -102,7 +103,8 @@ warmCsteps <- function(x, y, h, n, p, family, alphas, lambdas, hsize, nsamp, s1,
         indexall[, , al] <- newindex_la # Save in indexall for the current alpha
         residall[, , al] <- newresid_la # Save in the residuals for the current alpha
       
-      ## Case: multiple lambdas (default, often) 
+        
+      ## CASE: MULTIPLE LAMBDAS! (Interesting case)
       } else {
         # Constructing matrices, rows = h, columns is lambdas 
         IndexMatrix <- matrix(NA, nrow = h, ncol = (length(lambdas) -  1)) # lambda - 1 because the first lambda value (default: lambda0) was used for the warm start already
@@ -114,7 +116,7 @@ warmCsteps <- function(x, y, h, n, p, family, alphas, lambdas, hsize, nsamp, s1,
           newindex_la <- index1_la # Using the last arrived-upon h observation indices
           objbest <- tol
           
-          # Running a single C-step 
+          # Running a single C-step (to have at least 1 run before the while, actually to just initiate the whole thing if the while-loop doesn't even need to be ran)
           cstep.mod <- CStep(x = x, 
                              y = y, 
                              family = family, 
@@ -135,7 +137,7 @@ warmCsteps <- function(x, y, h, n, p, family, alphas, lambdas, hsize, nsamp, s1,
             newresid_la <- cstep.mod$residu # Saving n residuals from this lambda from the LAST run ...
             # Note: for the first run these are the results from the single run above ...
             
-            # Running another C-Step
+            # Running many C-steps potentially
             cstep.mod <- CStep(x = x, 
                                y = y, 
                                family = family, 
