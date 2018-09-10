@@ -179,9 +179,9 @@ enetLTS <- function (xx, yy, family = c("gaussian", "binomial"), alphas,
     ys <- scl$ycen # Centered y (not for binomial)
     
     # Fitting glmnet on best subset
-    fit <- glmnet(xs[indexbest, ], 
-                  ys[indexbest, ], 
-                  family, 
+    fit <- glmnet(x = xs[indexbest, ], 
+                  y = ys[indexbest, ], 
+                  family = family, 
                   alpha = alphabest, 
                   lambda = lambdabest, 
                   standardize = FALSE, # Because already done
@@ -233,8 +233,8 @@ enetLTS <- function (xx, yy, family = c("gaussian", "binomial"), alphas,
       }
       # Multiple user-supplied lambda (using enet warm starts)
       else if (!missing(lambdaw) & length(lambdaw) > 1) {
-        lambdaw <- cv.glmnet(xss[which(raw.wt == 1), ], 
-                             yss[which(raw.wt == 1)], 
+        lambdaw <- cv.glmnet(x = xss[which(raw.wt == 1), ], 
+                             y = yss[which(raw.wt == 1)], 
                              family = family, 
                              lambda = lambdaw, 
                              nfolds = 5, 
@@ -245,9 +245,9 @@ enetLTS <- function (xx, yy, family = c("gaussian", "binomial"), alphas,
       }
       
       # fitw: Fitting glmnet (not tuning anymore) using the updated lambba (lambdaw)
-      fitw <- glmnet(xss[which(raw.wt == 1), ], 
-                     yss[which(raw.wt == 1)], 
-                     family, 
+      fitw <- glmnet(x = xss[which(raw.wt == 1), ], 
+                     y = yss[which(raw.wt == 1)], 
+                     family = family, 
                      alpha = alphabest, 
                      lambda = lambdaw, 
                      standardize = FALSE, 
@@ -319,13 +319,14 @@ enetLTS <- function (xx, yy, family = c("gaussian", "binomial"), alphas,
   else {
     # Fitting (without scaling data)
     fit <- glmnet(x[indexbest, ], 
-                  y[indexbest, ], family, 
+                  y[indexbest, ], 
+                  family, 
                   alpha = alphabest, 
                   lambda = lambdabest, 
                   standardize = FALSE, 
                   intercept = FALSE)
     
-    # Binomial Case
+    # Binomial Case, no scaling
     if (family == "binomial") {
       a00 <- if (intercept == F) 
         0
@@ -379,7 +380,7 @@ enetLTS <- function (xx, yy, family = c("gaussian", "binomial"), alphas,
       reweighted.residuals <- -(yy * cbind(1, xx) %*% c(a0, coefficients)) + log(1 + exp(cbind(1, xx) %*% c(a0, coefficients)))
     }
     
-    # Gaussian case
+    # Gaussian case, no scaling
     else if (family == "gaussian") {
       a00 <- if (intercept == F) 
         0
@@ -431,7 +432,12 @@ enetLTS <- function (xx, yy, family = c("gaussian", "binomial"), alphas,
       wgt <- weight.gaussian(reweighted.residuals, raw.wt == 1, del)$we
     }
   }
+  
+  ### Preparing output
+  # Number nonzeros (not including intercept)
   num.nonzerocoef <- sum(coefficients != 0)
+  
+  # Adding intercept
   intercept <- isTRUE(intercept)
   if (intercept) 
     xx <- addIntercept(xx)
@@ -443,22 +449,30 @@ enetLTS <- function (xx, yy, family = c("gaussian", "binomial"), alphas,
     coefficients <- coefficients
     raw.coefficients <- raw.coefficients
   }
+  
+  ## Binomial Case
+  # Getting raw class predictions (0/1, cutoff = 0.5)
   if (family == "binomial") {
-    u <- xx %*% raw.coefficients
+    u <- xx %*% raw.coefficients # u = eta (raw) Including intercept now
     raw.fitted.values <- if (type == "class") {
-      ifelse(u <= 0.5, 0, 1)
-    }
-    else if (type == "response") {
+      ifelse(u <= 0.5, 0, 1) # Cutoff = 0.5
+  # Getting raw predicted probabilities  
+    } else if (type == "response") {
       1/(1 + exp(-u))
     }
+    
+  # Getting reweighted class predictions
     uu <- xx %*% coefficients
     fitted.values <- if (type == "class") {
       ifelse(uu <= 0.5, 0, 1)
-    }
-    else if (type == "response") {
+      
+  # Getting reweighted preidcted probabilities
+    } else if (type == "response") {
       1/(1 + exp(-uu))
     }
   }
+  
+  ## Gaussian case
   else if (family == "gaussian") {
     raw.fitted.values <- xx %*% raw.coefficients
     fitted.values <- xx %*% coefficients
@@ -488,6 +502,7 @@ enetLTS <- function (xx, yy, family = c("gaussian", "binomial"), alphas,
                  intercept = intercept, repl = repl, para = para, ncores = ncores, 
                  del = del, scal = scal)
   
+  ## OUTPUT
   # Binomial
   if (family == "binomial") {
     output <- list(objective = objective, best = sort(indexbest), 
