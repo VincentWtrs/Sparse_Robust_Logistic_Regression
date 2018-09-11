@@ -414,7 +414,6 @@ par(mfrow = c(1, 1))
 I am still a bit confused on how it exactly works with me putting the beta1 at positive value just before creating the eta coordinates... __Just checked it, it's okay anyway as long as you don't mess up using the sign used of beta1 consistently!__
 
 
-
 # IDEA:
 
 why don't we compare the fitted probabilities with those from the DGP based on something like the MSE?
