@@ -11,6 +11,21 @@ editor_options:
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+```{r}
+#install.packages("robustbase")
+```
+
+
+Libraries
+```{r}
+library(robustbase)
+```
+
+```{r}
+source(file = "C://Users/Vincent Wauters/Google Drive/Schoolwerk/KU Leuven/Thesis_Sparse_Robust_Logistic_Regression/logit_loss.R")
+```
+
+
 # Logistic Regression
 ## Logistic - Low Dimensional
 ### Logistic - LD - No Outliers
@@ -118,6 +133,7 @@ for(i in 1:nrow(beta_grid)){
        pch = 20,
        cex = 1.5,
        ylim = c(0, 1),
+       xlim = c(-20, 20),
        main = paste0("Impact of eta for beta0 = ", beta_grid[i, 1], ", beta1 = ", beta_grid[i, 2]),
        xlab = "eta",
        ylab = "Probability")
@@ -395,7 +411,10 @@ points(outliers_1_eta, col = "red")
 par(mfrow = c(1, 1))
 ```
 
-I am still a bit confused on how it exactly works with me putting the beta1 at positive value just before creating the eta coordinates...
+I am still a bit confused on how it exactly works with me putting the beta1 at positive value just before creating the eta coordinates... __Just checked it, it's okay anyway as long as you don't mess up using the sign used of beta1 consistently!__
+
+
 
 # IDEA:
+
 why don't we compare the fitted probabilities with those from the DGP based on something like the MSE?
