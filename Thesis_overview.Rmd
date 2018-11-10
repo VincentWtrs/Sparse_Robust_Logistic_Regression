@@ -42,233 +42,71 @@ source(file = "C://Users/Vincent Wauters/Google Drive/Schoolwerk/KU Leuven/Thesi
 
 To get a better grasp of the concepts of robust and sparse modelling some simple examples will be given that isolate single issues and apply it on a simple models.
 
-# Linear Models
-## Linear - Low Dimensional (LD)
-### Linear - LD - No Outliers
+# Linear Regression
+See file: linear_model_example.Rmd
 
-__USING OLS__
-
-In a first step data is generated without outliers. A simple data generating process (DGP) $y = \beta_0 + \beta_1 * x_1 + \varepsilon$ and the same model is estimated by OLS.
-```{r data_and_ols_no_outliers}
-## Creating data
-# Setting sample size
-n <- 500
-
-# Setting Coviates (Simple fixed design)
-x1 <- c(rep(x = 10, times = floor(n/2)), rep(x = 20, times = floor(n/2)))
-
-# Setting beta0, beta1
-beta0 <- 100
-beta1 <- 10
-
-# Defining error
-e <- rnorm(n = n,
-            mean = 0,
-            sd = 5)
-
-# Defining the outcome
-y <- beta0 + beta1 * x1 + e
-
-## Fitting OLS
-lm1 <- lm(y ~ x1) # (Includes intercept)
-summary(lm1)
-
-## Plotting
-plot(x = x1,
-     y = y,
-     main = "No outliers, OLS fit")
-abline(lm1)
-```
-
-__USING LTS__
-
-A robust estimator for the linear model, the __Least Trimmed Squares (LTS)__ estimator can also be used, and should give the same results. The function `ltsReg()` (capital R) from the `robustbase` can be used. The default $\alpha = 0.5$ this leads to a $h$ sample size of $h = $ __to do__
-```{r LTS_linear_no_outliers}
-# Fitting LTS
-lts1 <- ltsReg(y ~ x1, alpha = 0.5) # Default
-summary(lts1)
-
-# Fitting LTS with less trimming
-lts2 <- ltsReg(y ~ x1, alpha = 0.95) # Closer to OLS
-summary(lts2)
-
-## Plotting LTS
-plot(x = x1,
-     y = y,
-     main = "Clean data: OLS vs. LTS")
-abline(lts1, col = "black") # LTS Line
-abline(lm1, col = "gray", lwd = 2, lty = 2)
-legend("bottomright",
-       legend = c("OLS", "LTS"),
-       lty = 1:2,
-       lwd = 1:2,
-       col = c("black", "gray"))
-```
-
-__CONCLUSION: Yes in the linear low dimensional case, LTS seem to do equally good (visually at least) as OLS in clean case__
-
-__TO DO: what's the relation between alpha and the error variance (scale) estimate?__
-__TO DO: I have no idea why the degrees of freedom on the residuals is not $n - p?!__
-
-
-### Linear - LD - Outliers
-Let's now introduce some __leverage points__, these are points that are outlying in the X direction. There are __good leverage points__ which have outlying X values but have a y-value that corresponds to the value that would be taken on by the relation follows from the other points. __Bad leverage points__ have outlying X values and have a non-fitting y value. 
-
-Bad leverage points will be introduced, set at the coordinate (30, 150 + $e$) with $e$ coming from a $N(0, \sigma = 5)$ distribution or just put otherwise $y \sim N(150, 5)$. This is certainly a bad leverage point because a predicted reasonable value for $x1 = 30$ would be around 400.
-```{r bad_leverage_point}
-# Take look at current dataset
-plot(x = x1,
-     y = y,
-     main = "Outliers Visualization in Linear Models")
-abline(a = coef(lm1)[1],
-       b = coef(lm1)[2])
-
-# Introducing leverage points
-n_outlier1 <- 50 # Amount of outliers
-n2 <- n1 + n_outlier1
-
-# Making them bad outliers
-outliers1 <- rnorm(mean = 150, sd = 5, n = n_outlier1)
-
-x1 <- c(x1, rep(30, n_outlier1))
-y <- c(y, outliers1)
-
-# Plotting
-plot(x = x1,
-     y = y,
-     main = "OLS fit on regular data, bad leverage points added to display")
-abline(lm1)
-```
-
-When fitting a model to this model that has 50/550 leverage points using OLS but also the LTS estimator:
-```{r bad_leverage_ols_lts}
-# Fitting OLS
-lm2 <- lm(y ~ x1)
-summary(lm2)
-
-# Fitting LTS
-lts2 <- ltsReg(y ~ x1)
-summary(lts2)
-
-# Plotting
-plot(x = x1, 
-     y = y,
-     main = "Impact of bad leverage points")
-abline(lm1, col = "gray", lwd = 2) # OLS on regular data only
-abline(lm2, col = "black") # OLS on all data
-abline(lts2, col = "red") # LTS on all dat
-legend("bottomleft",
-       legend = c("OLS no outliers",
-                  "OLS outliers",
-                  "LTS outliers"),
-       lty = 1,
-       col = c("gray", "black", "red"))
-# OLS on the non-outlying points versus LTS: same, good!
-
-```
-
-Let's take a quick look at the LTS regression results on this dirty data:
-```{r bad_leverage_lts_detail}
-summary(lts2)
-coef(lts2)
-
-# Real betas:
-beta0; beta1
-
-```
-
-The LTS recovers the true parameter values.
-
-## Linear - High Dimensional
-### Linear - HD - No Outliers
-
-Let's now make something that is a lot more high dimensional, something with p = 200 (with intercept: 201), but only 10 first betas are nonzero, and the sample size stays the same at 500, __this example is thus NOT n < p!__
-
-```{r}
-## Setting parameters
-n1 # Keepign same sample size = 500
-p_a <- 10 # True dimensionality
-p_b <- 190 # Uninformative
-p <- p_a + p_b # Total dimensionality
-
-## Creating data
-beta0 <- 1
-beta <- c(beta0, rep(1, p_a), rep(0, p_b))
-
-# Creating covariates
-X <- rmvnorm(n = n1,
-             mean = rep(0, p),
-             sigma = diag(p))
-# Adding intercept column
-X <- cbind(rep(1, times = n1), X)
-
-# Adding names
-colnames(X) <- paste0("X", 0:p)
-  
-# Creating outcome
-y <- X %*% beta + rmvnorm(n = n1,
-                          mean = 0)
-
-# Creating dataframe used for FITTING
-data1 <- data.frame(cbind(y, X[, -1]))
-names(data1)[1] <- "y" # Setting name of y (first col)
-
-## Fitting
-# Making formula
-formula1 <- paste("y", paste0("X", 1:p, collapse = " + "), sep = " ~ ")
-
-# OLS
-lm3 <- lm(formula = formula1, data = data1)
-summary(lm3)
-
-# LTS
-lts3 <- ltsReg(formula = formula1, data = data1)
-```
-__ TO DO: further check the lts3 problems__
 
 # Logistic Regression
 ## Logistic - Low Dimensional
 ### Logistic - LD - No Outliers
 
-If we want multiple runs of such model (i.e. simulation), we need to run it multiple times, now we will automate this using a very simple function (which we will not use much further on, I suppose) and then using `replicate()` on this function. The function will generate data and specify the DGP and fit a logit model, then get the coefficients. By replicating this many times, due to the slightly different data (X) every time being sampled __and__ also due to sampling from the binomial distribution (i.e. even with the exact same probability parameter we ofcourse get different realizations).
+If we want multiple runs of such model (i.e. simulation), we need to run it multiple times, now we will automate this using a very simple function (which we will not use much further on, I suppose) and then using `replicate()` on this function. The function will generate data and specify the DGP and fit a logit model, then get the coefficients. By replicating this many times, due to the slightly different data (X) every time being sampled (so called sampling variability) __and__ also due to sampling from the binomial distribution (i.e. even with the exact same probability parameter we ofcourse get different realizations). As an example we will have 2 predictors and an intercept.
 
-The function is very basic, the parameters cannot even be altered in this simple version, it's purely as an example now!
-```{r temporary_logitcoefs_simulation_function}
-## Very Simple logit simulation: coefficients
-logitcoefs <- function() {
+Note: the function is very basic, i.e. the amount of predictors can not be varied, the structure of the predictor data cannot be altered...
+
+```{r defining_temporary_logitcoefs_simulation_function}
+
+## Defining simulation + 
+logitcoefs <- function(N = 1000, beta0 = 1, beta1 = 2, beta2 = 3) {
   # Sample size
-  N <- 1000
+  N <- N
   
-  # Beta
-  beta0 <- 1
-  beta1 <- 2
-  beta2 <- 3
+  # Setting true betas
+  beta0 <- beta0
+  beta1 <- beta1
+  beta2 <- beta2
   
   # Linear predictor (eta)
-  x1 <- rnorm(N)
-  x2 <- rnorm(N)
+  x1 <- rnorm(N) # This distribution doesn't matter
+  x2 <- rnorm(N) # This distribution doesn't matter
   eta <- beta0 + beta1 * x1 + beta2 * x2
   
   # Probability (pi or p) and outcome (0/1)
   p <- exp(eta)/(1 + exp(eta))
   y <- rbinom(n = N, size = 1, prob = p)
   
-  # Data.frame
+  # Making it a data frame
   df <- data.frame(y = y, x1 = x1, x2 = x2)
   
-  # Fitting
+  # Fitting using stock glm()
   fit <- glm(y ~ x1 + x2, data = df, family = binomial(link = "logit"))
   
-  # Returning coefs
+  # Returning: coefs
   return(coef(fit))
 }
+```
 
+Using the function and replicating the simulation `reps` times. If `reps` is big enough, e.g. 200 times or higher, the estimators are behaving well and the central limit theorem kicks in nicely and the estimators are close to their asymptotic distributions. But ofcourse this is probably (to do: check better) with the sample sizes used individually. The histograms show this (red line: means over replications).
+```{r replicating_logit_coefs()_function}
 # Replicating and getting results:
-results <- t(replicate(n = 50, 
+reps = 1000
+results <- t(replicate(n = reps, 
                        expr = logitcoefs())) # Transposing for more easy to read results
-colMeans(results) # Averages per variable
-# Comparing to original beta = 1, 2, 3 -> YES It's OK
 
+par(mfrow = c(2, 2))
+for(i in 1:ncol(results)){
+  hist(results[, i],
+       freq = FALSE,
+       main = paste0("Histogram of beta_hat ", i),
+       xlab = paste0("beta_hat ", i))
+  abline(v = colMeans(results)[i], col = "red")
+  
+}
+par(mfrow = c(1, 1))
+
+colMeans(results) # Averages per variable
+
+# Comparing to original beta = 1, 2, 3 -> YES It's OK
 ```
 
 
@@ -1661,7 +1499,7 @@ untrace("enetLTS")
 
 # ideas
 
-WHAT ABOUT SOMEKIND OF AUC FOR BETA RECOVERY (is also 2 outcome thing) or confusion matrix
+WHAT ABOUT SOMEKIND OF AUC FOR BETA RECOVERY (is also 2 outcome thing) or confusion matrix (Yes see: Bühlmann & Li, 2003)
 * We can do BIC approach by just setting
 * Also reproduceability of logit_sim due to random element
 * is the use of logistic loss still usefull when having fitted the model with penalization
