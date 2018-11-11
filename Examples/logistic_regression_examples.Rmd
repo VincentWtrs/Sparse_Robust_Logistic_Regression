@@ -1,7 +1,7 @@
 ---
 title: "logistic_regression_examples"
 author: "Vincent Wauters"
-date: "2018 M09 3"
+date: "2018-2019"
 output: html_document
 editor_options: 
   chunk_output_type: console
@@ -13,12 +13,16 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r}
 #install.packages("robustbase")
+#install.packages("tidyverse")
 ```
 
-
-Libraries
+Loading libraries
 ```{r}
 library(robustbase)
+library(ggplot2)
+library(reshape2)
+library(tidyr)
+library(tidyverse)
 ```
 
 ```{r}
@@ -30,16 +34,22 @@ source(file = "C://Users/Vincent Wauters/Google Drive/Schoolwerk/KU Leuven/Thesi
 ## Logistic - Low Dimensional
 ### Logistic - LD - No Outliers
 
-First we will generate data for an univariate example. Generally there are two approaches to creating data for logistic regression cases. Note that we are only focusing on the Bernoulli case and not on the Binomial case (i.e. $n_i = 1$ in usual formulas). The first approach is that of parametrizing the Bernoulli parameter $p_i$ (often: $p$) by the inverse logit-link. The second one is to assume a linear model and use a cut-off on it to generate binary data, this underlying model is called a latent model. The first method is more interesting because it allows us easier to calculate quantities which require the true $\boldsymbol{\beta}$.
+First we will generate data for an univariate (a single predictor) example. Generally there are two approaches to creating data for logistic regression cases:
 
-```{r logistic_regression_dgp}
+1. An underlying outcome (based on a underlying, "latent" model) is binned in a 0/1 outcome based on a chosen cutoff (e.g. if income > 5000 -> Rich (1), if income <= 5000 -> Poor (0))
+2. A Bernoulli random variable of which the probability parameter $\pi$ (or $p$) varies over observations (hence: $\pi_i$ (or $p_i$)), as parametrized by a suitable transformation (i.e. the inverse link function, or response function: $\pi_i = \exp(\eta_i)/(1 + \exp(\eta_i)$) of the linear predictor
+
+There are some advantages and disadvantages to both approaches. The second approach is probably the closest to how a logit model is actually theorically based and allows direct comparison of the fitted and true $\beta$ parameters, while the first also requires to keep track of what is done in the latent underlying model, i.e. the resulting $\boldsymbol{\hat{\beta}}$ depend on the variance specified in the underlying continuous model, for example. 
+
+In a first example let's assume $\beta_0 = 0.2$, $\beta_1 = 1.5$ for ($n$) 1000 observations. The covariate $X$ is generated using $N(0,1)$ data. The distribution of this covariate does not matter, since one takes conditional expectations! The Data Generating Process (DGP) or also called generative model is then the following when using the second approach, which will be called the __(Parametrized) Bernoulli approach__.
+
+```{r ld_DGP_Bernouilli}
 # Sample size
 n <- 1000
 
 # Beta
 beta0 <- 0.2
 beta1 <- 1.5
-
 beta <- c(beta0, beta)
 
 # Predictor X
@@ -48,44 +58,64 @@ X <- rnorm(n = n,
            sd = 1)
 
 # Linear predictor eta
-eta <- 1 + beta1 * X
+eta <- beta0 + beta1 * X
 
-# Bernoulli parameter 
-pi <- exp(eta) / (1 + exp(eta))
+# Bernoulli parameter parametrization
+pi <- exp(eta) / (1 + exp(eta)) # Using inverse link function
 
 # Generating Bernoulli outcome
-y <- rbinom(n = n,
-            size = 1,
-            p = pi)
+y <- rbinom(n = n, # sample size
+            size = 1, # rbinom(, ... size = 1) will make it Bernouilli!
+            p = pi) # The main parameter
 
 # Putting in data.frame
-data <- data.frame("y" = y, "X" = X)
+data <- data.frame("y" = y, "X" = X, "pi" = pi)
 ```
 
-Because the data is univariate ($p = 1$) it can be plotted easily. Also to show the relation between the underlying probabilities and the outcomes, these are both plotted. Normally one does not know the true underlying probability ofcourse.
+Because the data is univariate ($p = 1$) it can be plotted easily. Also to show the relation between the underlying probabilities and the outcomes, these are both plotted. Usually one does not know the true underlying probabilities for each observations, this is actually the Bernoulli parameter we are displaying. This seems confusing but in e.g. linear regression we are estimating $\mu$ but this is on the same scale as the outcome $y$ usually, so this is more closely connected.
 
 ```{r plotting_ld_data}
-plot(x = X,
-     y = y,
-     main = "Plot of DGP including underlying probabilities")
-points(x = X,
-      y = pi,
-      pch = 5,
-      col = "lightgray")
-legend(x = "bottomright",
-       legend = c("y-outcomes", "Underlying true pi"),
-       pch = c(1, 5),
-       col = c("black", "lightgrey"))
+## ggplot
+# Preparing data (melting)
+data_tidy <- gather(data = data,  # The data to melt
+                    key = "type", # The variable that will carry the type of data
+                    value = value, # The variable that will carry the actual value
+                    factor_key = TRUE, # If the type is a factor variable (yes)
+                    -X) # Columns to exclude from the melting process
+# Plotting
+ggplot(data = data_tidy) + 
+  # Adding points, color 
+  geom_point(mapping = aes(x = X, y = value, col = type)) +
+  scale_color_manual(values = c("black", "lightgray")) +
+  ggtitle("Plot of DGP including underlying probabilities pi") +
+  xlab("X") +
+  ylab("y") +
+  labs(col = NULL) + # Removing title for legend
+  theme_minimal() # 
+
+
+# OLD STYLE
+#plot(x = X,
+#     y = y,
+#     main = "Plot of DGP including underlying probabilities (pi)")
+#points(x = X,
+#      y = pi,
+#      pch = 5,
+#      col = "lightgray")
+#legend(x = "bottomright",
+#       legend = c("y", "True pi"),
+#       pch = c(1, 5),
+#       col = c("black", "lightgrey"))
 ```
 
-This also is a good time to show the impact of the signs and sizes of beta. We will now plot the logistic function $f(x) = exp(\beta_0 + \beta_1 * X)/(1 + exp(\beta_0 + beta_1 * x))$ and see what happens.
+This also is a good time to show the impact of the signs and sizes of beta. We will now plot the logistic function $f(x) = exp(\beta_0 + \beta_1 * X)/(1 + exp(\beta_0 + beta_1 * x))$ and change the parameters, and observing what happens to the fitted curves (underlying probabilities are not displayed now)
 
-```{r}
+```{r plotting_examples_X}
 # Setting beta
 beta0 <- c(-3, 0, 3)
 beta1 <- c(-10, -1, 0, 1, 10)
 
-# Creating X-grid
+# Creating X-grid to plot the function on
 X_grid <- seq(from = -3.5, to = 3.5, by = 0.01)
 
 # Plotting
@@ -94,11 +124,18 @@ for(i in 1:length(beta1)){ # First a plot for each beta1
     plot(x = X_grid,
        y = (exp(beta0[1] + beta1[i] * X_grid)/(1 + exp(beta0[1] + beta1[i] * X_grid))),
        type = "l",
+       col = "black",
        ylim = c(0, 1),
        xlim = c(-3.5, 3.5),
        xlab = "X",
        ylab = "logistic(x)",
        main = paste0("Beta1 = ", beta1[i]))
+  legend(x = "topright",
+         legend = c("beta0 = -3",
+                    "beta0 = 0",
+                    "beta0 = 3"),
+         lty = 1,
+         col = c(1:3))
   for(j in 2:length(beta0)){ # Adding lines for each beta0
     lines(x = X_grid,
           y = (exp(beta0[j] + beta1[i] * X_grid)/(1 + exp(beta0[j] + beta1[i] * X_grid))),
@@ -107,14 +144,17 @@ for(i in 1:length(beta1)){ # First a plot for each beta1
 }
 ```
 
-Note that the red line is beta0 = 0, the black line is beta0 = -3 and the green line = beta0 = 3. The impact of $\beta_1$ is quite clear, if it's positive then the curve has an S-shape from low to high going from left to right. If it is negative it will have a mirrored (along the vertical axis) shape, i.e. starting high ending low from left to right. If it is exactly 0 then the line is flat, no matter the value of $\beta_0$. This case it the most interesting to see the impact of $\beta_0$. Remember that one can view $\beta_0$ as being related to the proportions in the sample when no covariate information is available. The plotted curves give the probability of the outcome being 1, i.e. Indeed if $\beta_0 = -3$ (black line) then this means that $P(y = 1) = exp(-3)/(1 + exp(-3))$ which is around 5%. If $\beta_0 = 0$ then the marginal distribution of $y$ is balanced hence the red line appearing at $p = 0.5$. Generally the impact of $\beta0$ is a parallel shift but it's a bit more complicated than that... (to do)
+The impact of $\beta_1$ is quite clear: the curve becomes flatter for $\beta_1 \rightarrow 0$ and steeper for $|\beta_1| >> 0$. If $\beta_1$ is positive then the curve has an Sigmoid shape from low to high going from left to right. If it is negative it will have a mirrored (along the vertical axis) shape, i.e. starting high ending low from left to right. If it is exactly 0 then the line is flat, no matter the value of $\beta_0$. This case it the most interesting to see the impact of $\beta_0$. Remember that one can view $\beta_0$ as being related to the proportions in the sample when no covariate information is available, or some kind of a prior probability given no information (in the predictors). This prior is then just the prevalance (proportions) of the outcomes in the sample. The plotted curves give the probability of the outcome being 1, i.e. Indeed if $\beta_0 = -3$ (black line) then this means that $P(y = 1) = exp(-3)/(1 + exp(-3))$ which is around 5%. If $\beta_0 = 0$ then the marginal distribution of $y$ is balanced hence the red line appearing at $p = 0.5$. Generally the impact of $\beta0$ is a shift that seems to retain shape, ... (to do).
 
-Through the use of the use of the linear predictor $\eta$ we can get a more unified view. 
-```{r}
+Through the use of the linear predictor $\eta$ we can get a more unified view. We now plot dots instead of a line because some additional information will become appearant this way, e.g the denseness of the points on the steep part of the function.
+```{r plotting_examples_eta}
 # Creating grid of all beta combinations
 beta_grid <- expand.grid(beta0, beta1)
 names(beta_grid) <- c("beta0", "beta1")
-X_grid <- seq(-10, 10, by = 0.01)
+
+# Making broader grid of X-values
+X_grid <- seq(-40, 40, by = 0.05)
+length(X_grid) # 1601
 
 # Creating eta (each column is the situation for dfferent beta combination)
 eta <- matrix(NA, nrow = length(X_grid), ncol = nrow(beta_grid))
@@ -134,7 +174,7 @@ for(i in 1:nrow(beta_grid)){
        cex = 1.5,
        ylim = c(0, 1),
        xlim = c(-20, 20),
-       main = paste0("Impact of eta for beta0 = ", beta_grid[i, 1], ", beta1 = ", beta_grid[i, 2]),
+       main = paste0("eta for beta0 = ", beta_grid[i, 1], ", beta1 = ", beta_grid[i, 2]),
        xlab = "eta",
        ylab = "Probability")
 }
@@ -142,9 +182,11 @@ par(mfrow = c(1, 1))
 # Less clear than the overlaid plots from earlier (all beta0 values on 1 curve)
 ```
 
-From the figures, we can see that all the curves start at 0 and go to 1 from left to right for increasing $\eta$. However in the cases where $\beta_1 = 0$ the linear predictor $\eta$ is a constant, hence it only produces a single point on the plot, all the outcome values are coinciding. For cases with a largue value of $\beta_0$ one also notices that the linear predictor only starts from a certain value, this is because if $\beta_0$ is this high (e.g. 3) it would assume $\exp(3) / (1 + exp(3))$ = 95\%$ probability when the $X$-values are 0, hence a very big __negative__ $X$ is needed to bring this down to 0 again. To achieve this the $X$-grid was made bigger.
+From the figures, we can see that all the curves start at 0 and go to 1 from left to right for increasing $\eta$. How does this come? Because negative $X$ with a negative $\beta_1$ will give positive values again, hence coinciding with the positive $X$, positive $\beta_1$ case. In some cases the plot reduces to a point, i.e. if $\beta_1$ is 0, which makes the linear predictor a constant, even if the $X$ values underlying are still changing. In that case, yes the probability is constant, __but still this does not mean that the generated true outcomes $y$ are all equal to 0 or 1__
 
-__In any case the take-away message from these plots are: bigger higher probabilities of an 1-outcome. However we should see if this still makes sense in multiple dimensions. Since we can check the linear predictor (it's a scalar) and the probability (scalar as well) this is possible regardless the dimensionality of $X$.__
+For cases with a largue value of $\beta_0$ one also notices that the linear predictor only starts from a certain value, this is because if $\beta_0$ is this high (e.g. 3) it would assume $\exp(3) / (1 + exp(3))$ = 95\%$ probability when the $X$-values are 0, hence a very big __negative__ $X$ is needed to bring this down to 0 again. To achieve this the $X$-grid was made bigger. (So now it doesn't show on the )
+
+__In any case the take-away message from these plots are: bigger $\eta$ gives higher probabilities of an 1-outcome. However we should see if this still makes sense in multiple dimensions. Since we can check the linear predictor (it's a scalar) and the probability (scalar as well) this is possible regardless the dimensionality of $X$.__
 
 To do: linear predictor thinking in multiple dimensions.
 
@@ -416,4 +458,4 @@ I am still a bit confused on how it exactly works with me putting the beta1 at p
 
 # IDEA:
 
-why don't we compare the fitted probabilities with those from the DGP based on something like the MSE?
+why don't we compare the fitted probabilities with those (underlying) from the DGP based on something like the MSE?
