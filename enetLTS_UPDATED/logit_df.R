@@ -28,11 +28,15 @@ logit_df <- function(model, X, alpha = NULL, intercept){
     }
   }
   
+  # TO DO: CHANGE BY CODE BELOW (model.matrix())
   # If the model was estimated using an intercept, the matrix calculations need to have a 1 in the column as well!
   if(intercept == TRUE){
     X <- cbind(1, X)
     colnames(X)[1] <- "X0" # Needs to be colnames because matrix!
   }
+  
+  # ALTERNATIVE TO INTERCEPT HASSLE (TO DO: TEST)
+  #X <- model.matrix(model)
 
   # Extracting fitted beta (coefficients)
   if(intercept == TRUE){
