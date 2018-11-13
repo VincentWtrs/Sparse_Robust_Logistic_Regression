@@ -1,11 +1,11 @@
 logit_df <- function(model, X, alpha = NULL, intercept){
-  ### logit_df() FUNCTION: calculating the effective degrees of freedom in a potentially penalized regression using hat matrices
+  ### logit_df() FUNCTION: calculating the effective degrees of freedom in a potentially penalized logistic regression using hat matrix trace
   
   ## INPUTS
   # model: A glmnet() model
   # X: the data matrix WITHOUT INTERCEPT
   # alpha: Alpha value used to fit the model (single value)
-  # intercept: If intercept was used to fit the logit-glmnet model: TRUE
+  # intercept: If intercept was used to fit the logit-glmnet model: set to TRUE
   
   ## OUTPUT
   # df: the effective degrees of freedom for the logit model
@@ -19,12 +19,12 @@ logit_df <- function(model, X, alpha = NULL, intercept){
   # 3. IDEA to work with the intercept is to see in coefficients(model) is it's 0, if yes: no intercept fitted, becuase it's always unpenalized!
   # 4. I was afraid this might break down at the matrix inversion when |Active set| > n, but seems to be okay!
   
-  # Handling missing alphas
+  # Trying to retrieve alpha if missing in function call
   if(missing(alpha)){
     if(is.numeric(model$call$alpha)){
       alpha <- model$call$alpha # Trying to extract from the function call if possible
     } else { # But if it's another variable, it will return e.g. "myalpha" and will not be of any use
-      stop("No alpha value given for logit_df(), also no value could be succesfully extracted from the function call, supply a valid alpha: [0, 1]")
+      stop("No alpha value given for logit_df(), also no value could be succesfully extracted from the model object, supply a valid alpha: [0, 1]")
     }
   }
   
