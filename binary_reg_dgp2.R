@@ -1,4 +1,4 @@
-binary_reg_dgp2 <- function(n, beta, beta0 = 1, sigma_in = NULL, rho_a = 0.9, X_a_mean = 0, rho_b = 0.5, dirty = 0, type = "latent", v_outlier = "VW", test, outlier_mean = 20, outlier_sd = 1, output_probs = FALSE, output_outlier_rows = FALSE, verbose=FALSE){
+binary_reg_dgp2 <- function(n, beta, beta0 = 1, sigma_in = NULL, rho_a = 0.9, X_a_mean = 0, rho_b = 0.5, dirty = 0, type = "latent", v_outlier = "VW", test, outlier_mean = 20, outlier_sd = 1, output_probs = FALSE, output_outlier_rows = FALSE, verbose=FALSE) {
   
   ## binary_reg_dgp2(): generates data following KHF (2017) based on Bernoulli, parametrized by structural eta
   # NEEDS UPDATING (DOCS)
@@ -85,6 +85,7 @@ binary_reg_dgp2 <- function(n, beta, beta0 = 1, sigma_in = NULL, rho_a = 0.9, X_
   }
   
   # Generating Gaussian predictor data using sigma_a
+  X_a_mean <- rep(X_a_mean, times = p_a) # Making mean scalar into a vector!
   X_a <- rmvnorm(n = n,
                  mean = X_a_mean, # DEFAULT: 0-vector
                  sigma = sigma_a)
@@ -208,6 +209,11 @@ binary_reg_dgp2 <- function(n, beta, beta0 = 1, sigma_in = NULL, rho_a = 0.9, X_
         # Separating beta into informative and uninformative part
         beta_informative <- beta[beta != 0]
         
+        # Making an indicator of positive beta (Positive: +1 / Negative: -1) for later use when placing outliers
+        positive_beta_indicator <- ifelse(beta_informative > 0,
+                                          yes = 1,
+                                          no = - 1)
+        
         ## Looping over each informative predictor
         for (i in 1:p_a) {
           # Extracting current indicator: for positive beta: 1 / for negative beta: -1
@@ -217,7 +223,7 @@ binary_reg_dgp2 <- function(n, beta, beta0 = 1, sigma_in = NULL, rho_a = 0.9, X_
                                                 sd = outlier_sd)
           
           X_a[y == 1, i][1:n_contam_1] <- rnorm(n = n_contam_1,
-                                                mean = X_a_mean + (indicator * outlier_mean), 
+                                                mean = X_a_mean - (indicator * outlier_mean), 
                                                 sd = outlier_sd)
         }
       }
@@ -233,8 +239,8 @@ binary_reg_dgp2 <- function(n, beta, beta0 = 1, sigma_in = NULL, rho_a = 0.9, X_
       
       # Additional prints (debugging, or interested)
       if (verbose) {
-        print(n_contam_0)
-        print(n_contam_1)
+        print(paste0("The amount of outliers in the 0-outcomes is: ", n_contam_0))
+        print(paste0("The amount of outliers in the 1-outcomes is: ", n_contam_1))
         print(paste0("The row numbers of the observations with outliers are: ", paste0(outlier_rows, collapse=" ")))
       }
     }
@@ -266,33 +272,6 @@ binary_reg_dgp2 <- function(n, beta, beta0 = 1, sigma_in = NULL, rho_a = 0.9, X_
     output <- data_frame
     
   }
+  # RETURN OUTPUT
+  return(output)
 }
-
-
-########### DRAFT
-# The idea of the positive/negative beta needs to be generalized (Positive: 1 / Negative: -1)
-#positive_beta_indicator <- ifelse(beta_informative > 0,
-#yes = 1,
-#no = - 1)
-
-
-## Creating indicator variable (of length = length(beta)) that will tell us on which side an outlier should lie (to be an outlier) for that informative covariate
-# For 1-outcome: i.e. truly they are 1, but we will make them 0s
-#outlier_side_1 <- ifelse(beta > 0,
-#                         yes = 0, # Make them 0's for positive betas
-#                         no  = 1) # Make them 1's for negative betas
-
-# For 0-outcomes: if beta positive we expect them at
-#outlier_side_0 <- ifelse(beta > 0, # I THINK OK
-#                         yes = 1,
-#                         no = 0)
-# EXPLANATION: Given e.g. N(20, 1) outliers, we need them placed at y == 0 if beta_j > 0 and at y == 1 if beta_j < 0
-# Visualize this for yourself if not clear in a setting with a single covariate.
-
-#     
-#outlier_rows_0 <- which(y == 0)[1:n_contam_0]
-#outlier_rows_1 <- which(y == 1)[1:n_contam_1]
-
-#which(y == outlier_side_0)[1:n_contam_0]
-#outlier_rows_1 <- which(y == outlier_side_1)[1:n_contam_1]
-#outlier_rows <- sort(c(outlier_rows_0, outlier_rows_1))
